@@ -11,38 +11,45 @@ export function initReveals() {
   els.forEach(el => io.observe(el));
 }
 
+/** Active section = last section whose top is above the focus line */
 export function initProgress() {
   const papers = [...document.querySelectorAll('.paper')];
-  // Hide all rails initially; show only active paper's rail
-  const syncRails = () => {
-    const y = window.scrollY + window.innerHeight * 0.35;
-    let active = null;
+  const FOCUS = () => window.innerHeight * 0.28;
+
+  function sync() {
+    const focusY = window.scrollY + FOCUS();
+    let activePaper = null;
     for (const p of papers) {
       const top = p.offsetTop;
       const bottom = top + p.offsetHeight;
-      if (y >= top && y < bottom) active = p;
+      if (focusY >= top && focusY < bottom) activePaper = p;
     }
     papers.forEach(p => {
       const rail = p.querySelector('.paper-progress');
-      if (!rail) return;
-      rail.classList.toggle('show', p === active);
+      if (rail) rail.classList.toggle('show', p === activePaper);
     });
-  };
-  window.addEventListener('scroll', syncRails, { passive: true });
-  syncRails();
+    if (!activePaper) return;
 
-  papers.forEach(paper => {
-    const links = [...paper.querySelectorAll('.paper-progress a')];
-    const secs = links.map(a => paper.querySelector(`#${paper.id}-${a.dataset.sec}`)).filter(Boolean);
-    const io = new IntersectionObserver((entries) => {
-      entries.forEach(e => {
-        if (!e.isIntersecting) return;
-        const id = e.target.dataset.sec;
-        links.forEach(l => l.classList.toggle('on', l.dataset.sec === id));
-      });
-    }, { threshold: 0.2, rootMargin: '-20% 0px -45% 0px' });
-    secs.forEach(s => io.observe(s));
-  });
+    const links = [...activePaper.querySelectorAll('.paper-progress a')];
+    const secs = links
+      .map(a => ({ id: a.dataset.sec, el: activePaper.querySelector(`#${activePaper.id}-${a.dataset.sec}`) }))
+      .filter(s => s.el);
+
+    let current = secs[0]?.id || null;
+    for (const s of secs) {
+      // section considered active once its top passes above the focus line
+      if (s.el.offsetTop <= focusY + 8) current = s.id;
+    }
+    links.forEach(l => l.classList.toggle('on', l.dataset.sec === current));
+  }
+
+  window.addEventListener('scroll', sync, { passive: true });
+  window.addEventListener('resize', sync);
+  // sections render async; sync a few times after load
+  sync();
+  requestAnimationFrame(sync);
+  setTimeout(sync, 300);
+  setTimeout(sync, 1000);
 }
 
 export function initMethodScrolly() {
@@ -62,29 +69,14 @@ export function initMethodScrolly() {
 
     if (reduce) { setStep(0); return; }
 
-    const io = new IntersectionObserver((entries) => {
-      let best = null, bestRatio = 0;
-      // Also consider all steps' current ratios
-      steps.forEach(s => {
-        const r = s.getBoundingClientRect();
-        const vh = window.innerHeight;
-        const visible = Math.min(r.bottom, vh * 0.7) - Math.max(r.top, vh * 0.25);
-        const ratio = visible / Math.max(r.height, 1);
-        if (ratio > bestRatio) { bestRatio = ratio; best = s; }
-      });
-      if (best && bestRatio > 0.05) setStep(Number(best.dataset.step));
-    }, { threshold: [0, 0.25, 0.5, 0.75, 1], rootMargin: '0px' });
-
-    steps.forEach(s => io.observe(s));
-    // fallback scroll handler for smoother updates
     const onScroll = () => {
-      let best = null, bestScore = -1;
+      let best = null, bestScore = -Infinity;
       const mid = window.innerHeight * 0.45;
       steps.forEach(s => {
         const r = s.getBoundingClientRect();
         const c = (r.top + r.bottom) / 2;
         const score = -Math.abs(c - mid);
-        if (r.bottom > 80 && r.top < window.innerHeight - 80 && score > bestScore) {
+        if (r.bottom > 60 && r.top < window.innerHeight - 60 && score > bestScore) {
           bestScore = score; best = s;
         }
       });

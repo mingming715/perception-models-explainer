@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
 const canvas = document.getElementById('hero-canvas');
 const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -12,6 +13,17 @@ renderer.setClearColor(0x000000, 0);
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(42, 1, 0.1, 100);
 camera.position.set(0.2, 0.55, 5.8);
+const heroTarget = new THREE.Vector3(0.4, 0.45, 0);
+camera.lookAt(heroTarget);
+const heroOrbit = new OrbitControls(camera, canvas);
+heroOrbit.enableDamping = true;
+heroOrbit.dampingFactor = 0.06;
+heroOrbit.enableZoom = false;
+heroOrbit.enablePan = false;
+heroOrbit.target.copy(heroTarget);
+canvas.style.touchAction = 'pan-y';
+heroOrbit.touches = { ONE: THREE.TOUCH.PAN, TWO: THREE.TOUCH.DOLLY_ROTATE };
+
 
 // Soft ambient + cool key light
 scene.add(new THREE.AmbientLight(0x6ea8ff, 0.35));
@@ -209,10 +221,7 @@ function frame(now) {
   const t = (now - t0) / 1000;
   const motion = reduce ? 0 : 1;
 
-  // gentle camera parallax
-  camera.position.x = 0.2 + mx * 0.35 * motion;
-  camera.position.y = 0.55 - my * 0.2 * motion;
-  camera.lookAt(0.4, 0.45, 0);
+  heroOrbit.update();
 
   ego.rotation.y = Math.sin(t * 0.25) * 0.08 * motion;
   frustums.rotation.y = ego.rotation.y;

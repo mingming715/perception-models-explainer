@@ -59,6 +59,7 @@ function paperHTML(id, p) {
       <div class="method-sticky">
         <div class="lab-view sticky-view">
           <span class="lab-badge">Three.js · 스크롤 연동</span>
+          <span class="lab-hint">드래그로 회전</span>
           <canvas id="lab-${p.lab}"></canvas>
           <p class="sticky-caption" data-role="sticky-caption">${esc(p.methodSteps[0].title)}</p>
         </div>

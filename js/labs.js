@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
 const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
@@ -38,6 +39,60 @@ function glowSphere(r, color) {
     })
   );
   return m;
+}
+
+
+/** Drag-rotate for lab canvases. Wheel still scrolls page (zoom off). */
+function attachOrbit(camera, domElement, targetVec) {
+  const tgt = targetVec instanceof THREE.Vector3
+    ? targetVec.clone()
+    : new THREE.Vector3(...(Array.isArray(targetVec) ? targetVec : [0, 0.6, 0]));
+
+  camera.lookAt(tgt);
+  const controls = new OrbitControls(camera, domElement);
+  controls.enableDamping = true;
+  controls.dampingFactor = 0.08;
+  controls.enableZoom = false;
+  controls.enablePan = false;
+  controls.enableRotate = true;
+  controls.target.copy(tgt);
+  controls.update();
+
+  // One-finger vertical swipe scrolls the page; rotate via mouse / two-finger
+  domElement.style.touchAction = 'pan-y';
+  controls.touches = {
+    ONE: THREE.TOUCH.PAN,           // pan disabled → ignore; browser handles pan-y
+    TWO: THREE.TOUCH.DOLLY_ROTATE   // zoom off → rotate
+  };
+
+  const homePos = camera.position.clone();
+  const homeTarget = controls.target.clone();
+  let anim = 0;
+
+  function easeHome(ms = 650) {
+    if (reduceMotion) {
+      camera.position.copy(homePos);
+      controls.target.copy(homeTarget);
+      controls.update();
+      return;
+    }
+    const fromPos = camera.position.clone();
+    const fromTarget = controls.target.clone();
+    const t0 = performance.now();
+    if (anim) cancelAnimationFrame(anim);
+    const tick = (now) => {
+      const u = Math.min(1, (now - t0) / ms);
+      const e = u * u * (3 - 2 * u);
+      camera.position.lerpVectors(fromPos, homePos, e);
+      controls.target.lerpVectors(fromTarget, homeTarget, e);
+      controls.update();
+      if (u < 1) anim = requestAnimationFrame(tick);
+      else anim = 0;
+    };
+    anim = requestAnimationFrame(tick);
+  }
+
+  return { controls, easeHome };
 }
 
 const __labAPI = {};
@@ -115,7 +170,7 @@ function initStreamPETR() {
   const scene = new THREE.Scene();
   const camera = new THREE.PerspectiveCamera(42, 1, 0.1, 100);
   camera.position.set(0, 3.2, 6.2);
-  camera.lookAt(0, 0.6, 0);
+  const orbit = attachOrbit(camera, canvas, new THREE.Vector3(0, 0.6, 0));
   scene.add(new THREE.AmbientLight(0x88aaff, 0.45));
   const key = new THREE.DirectionalLight(0xffffff, 0.9);
   key.position.set(3, 5, 4); scene.add(key);
@@ -232,7 +287,7 @@ function initStreamPETR() {
     }
   }
 
-  bindLabUI(root, steps, (i) => applyPhase(steps[i].phase), 'streampetr');
+  bindLabUI(root, steps, (i) => { applyPhase(steps[i].phase); orbit.easeHome(); }, 'streampetr');
 
   let running = false;
   const io = new IntersectionObserver(([e]) => { running = e.isIntersecting; }, { threshold: 0.15 });
@@ -249,6 +304,7 @@ function initStreamPETR() {
       queueGroup.position.y = 0.9 + Math.sin(t * 0.8) * 0.03;
       if (phase >= 2) propGroup.rotation.y = Math.sin(t) * 0.1;
     }
+    orbit.controls.update();
     renderer.render(scene, camera);
   }
   requestAnimationFrame(frame);
@@ -265,7 +321,7 @@ function initS4Dv1() {
   const scene = new THREE.Scene();
   const camera = new THREE.PerspectiveCamera(40, 1, 0.1, 100);
   camera.position.set(4.5, 3.5, 5.5);
-  camera.lookAt(0, 0.8, 0);
+  const orbit = attachOrbit(camera, canvas, new THREE.Vector3(0, 0.8, 0));
   scene.add(new THREE.AmbientLight(0x88aaff, 0.5));
   const key = new THREE.DirectionalLight(0xffffff, 0.85); key.position.set(2, 4, 3); scene.add(key);
   scene.add(new THREE.GridHelper(10, 20, 0x1c3a4a, 0x121a28));
@@ -343,7 +399,7 @@ function initS4Dv1() {
     else anchor.scale.setScalar(1);
   }
 
-  bindLabUI(root, steps, (i) => applyPhase(steps[i].phase), 's4dv1');
+  bindLabUI(root, steps, (i) => { applyPhase(steps[i].phase); orbit.easeHome(); }, 's4dv1');
   let running = false;
   new IntersectionObserver(([e]) => { running = e.isIntersecting; }, { threshold: 0.15 }).observe(canvas);
   fit(renderer, camera, canvas);
@@ -357,6 +413,7 @@ function initS4Dv1() {
       kpGroup.rotation.y = Math.sin(t * 0.5) * 0.05;
       anchor.rotation.y = Math.sin(t * 0.3) * 0.08;
     }
+    orbit.controls.update();
     renderer.render(scene, camera);
   })(performance.now());
 }
@@ -372,7 +429,7 @@ function initS4Dv2() {
   const scene = new THREE.Scene();
   const camera = new THREE.PerspectiveCamera(40, 1, 0.1, 100);
   camera.position.set(0.5, 3.4, 6.5);
-  camera.lookAt(0, 0.6, 0);
+  const orbit = attachOrbit(camera, canvas, new THREE.Vector3(0, 0.6, 0));
   scene.add(new THREE.AmbientLight(0x88aaff, 0.5));
   const key = new THREE.DirectionalLight(0xffffff, 0.9); key.position.set(3, 5, 2); scene.add(key);
   scene.add(new THREE.GridHelper(12, 24, 0x1c3a4a, 0x121a28));
@@ -463,7 +520,7 @@ function initS4Dv2() {
     }
   }
 
-  bindLabUI(root, steps, (i) => applyPhase(steps[i].phase), 's4dv2');
+  bindLabUI(root, steps, (i) => { applyPhase(steps[i].phase); orbit.easeHome(); }, 's4dv2');
   let running = false;
   new IntersectionObserver(([e]) => { running = e.isIntersecting; }, { threshold: 0.15 }).observe(canvas);
   fit(renderer, camera, canvas);
@@ -477,6 +534,7 @@ function initS4Dv2() {
       past.position.x = -2.5 + Math.sin(t * 0.5) * 0.05;
       curr.position.x = 0.3 + Math.sin(t * 0.5) * 0.05;
     }
+    orbit.controls.update();
     renderer.render(scene, camera);
   })(performance.now());
 }
@@ -492,7 +550,7 @@ function initS4Dv3() {
   const scene = new THREE.Scene();
   const camera = new THREE.PerspectiveCamera(40, 1, 0.1, 100);
   camera.position.set(0.2, 2.8, 6.2);
-  camera.lookAt(0, 0.8, 0);
+  const orbit = attachOrbit(camera, canvas, new THREE.Vector3(0, 0.8, 0));
   scene.add(new THREE.AmbientLight(0x88aaff, 0.5));
   const key = new THREE.DirectionalLight(0xffffff, 0.9); key.position.set(3, 4, 3); scene.add(key);
   scene.add(new THREE.GridHelper(10, 20, 0x1c3a4a, 0x121a28));
@@ -575,7 +633,7 @@ function initS4Dv3() {
     infer.children.forEach(c => { c.material.opacity = p === 0 ? 0.85 : 0.35; });
   }
 
-  bindLabUI(root, steps, (i) => applyPhase(steps[i].phase), 's4dv3');
+  bindLabUI(root, steps, (i) => { applyPhase(steps[i].phase); orbit.easeHome(); }, 's4dv3');
   let running = false;
   new IntersectionObserver(([e]) => { running = e.isIntersecting; }, { threshold: 0.15 }).observe(canvas);
   fit(renderer, camera, canvas);
@@ -589,6 +647,7 @@ function initS4Dv3() {
       qeGroup.rotation.y = t * 0.4;
       dec.rotation.y = Math.sin(t * 0.6) * 0.15;
     }
+    orbit.controls.update();
     renderer.render(scene, camera);
   })(performance.now());
 }
@@ -605,7 +664,7 @@ function initF4D() {
   const scene = new THREE.Scene();
   const camera = new THREE.PerspectiveCamera(40, 1, 0.1, 120);
   camera.position.set(0.4, 4.2, 8.5);
-  camera.lookAt(0, 1.0, 0);
+  const orbit = attachOrbit(camera, canvas, new THREE.Vector3(0, 1.0, 0));
   scene.add(new THREE.AmbientLight(0x88aaff, 0.5));
   const key = new THREE.DirectionalLight(0xffffff, 0.95); key.position.set(4, 6, 3); scene.add(key);
   scene.add(new THREE.GridHelper(16, 32, 0x1c3a4a, 0x121a28));
@@ -704,7 +763,7 @@ function initF4D() {
     }
   }
 
-  bindLabUI(root, steps, (i) => applyPhase(steps[i].phase), 'f4d');
+  bindLabUI(root, steps, (i) => { applyPhase(steps[i].phase); orbit.easeHome(); }, 'f4d');
   let running = false;
   new IntersectionObserver(([e]) => { running = e.isIntersecting; }, { threshold: 0.15 }).observe(canvas);
   fit(renderer, camera, canvas);
@@ -719,6 +778,7 @@ function initF4D() {
       frust.rotation.y = ego.rotation.y;
       tokens.rotation.y = t * 0.08;
     }
+    orbit.controls.update();
     renderer.render(scene, camera);
   })(performance.now());
 }

@@ -407,20 +407,35 @@ main .placeholder{
   .paper-progress a span{ display:none; }
 }
 
-/* Method scrolly: sticky canvas + step text */
+/* Method scrolly: sticky canvas + step text
+   Grid column STRETCHES to steps height; card inside is position:sticky.
+   align-items:start on the scrolly made the sticky column only as tall as the
+   card, so it scrolled away with no room to pin. */
 .method-scrolly{
   display:grid;
   grid-template-columns: minmax(280px, 1.05fr) minmax(280px, 0.95fr);
   gap: 28px;
-  align-items: start;
+  align-items: stretch; /* left col = full height of steps */
   margin: 8px 0 36px;
+  /* no overflow/transform here — would break sticky */
+  overflow: visible;
 }
 .method-sticky{
-  position: sticky;
-  top: calc(var(--nav-h) + 18px);
+  /* tall column matching steps; sticky child pins inside it */
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  min-height: 100%;
+  overflow: visible;
 }
 .sticky-view{
-  position:relative; height: min(62vh, 520px); min-height: 360px;
+  position: sticky;
+  top: calc(var(--nav-h) + 16px); /* ~80px below nav */
+  align-self: start;
+  width: 100%;
+  z-index: 5;
+  height: min(62vh, 520px); min-height: 360px;
   border-radius:16px; overflow:hidden; border:1px solid var(--line); background:#05070c;
 }
 .sticky-view canvas{ position:absolute; inset:0; width:100%; height:100%; }
@@ -452,10 +467,15 @@ main .placeholder{
 .method-aside li{ margin-bottom:6px; }
 
 @media (max-width:900px){
+  /* Card first (already in DOM order), stays pinned at top; steps scroll beneath */
   .method-scrolly{ grid-template-columns: 1fr; }
-  .method-sticky{ position: relative; top: auto; }
-  .sticky-view{ height: 300px; min-height: 280px; }
-  .mstep{ min-height: auto; padding: 22px 4px; }
+  .method-sticky{ min-height: 0; }
+  .sticky-view{
+    position: sticky;
+    top: calc(var(--nav-h) + 12px);
+    height: min(42vh, 320px); min-height: 240px;
+  }
+  .mstep{ min-height: 70vh; padding: 22px 4px; }
 }
 
 /* Experiment tables */
@@ -496,3 +516,8 @@ main .placeholder{
 
 .paper-progress{opacity:0;pointer-events:none;transition:opacity .2s}
 .paper-progress.show{opacity:1;pointer-events:auto}
+
+/* Sticky must not be clipped by paper containers */
+.paper, .paper-sec, #papers-root, main {
+  overflow: visible;
+}

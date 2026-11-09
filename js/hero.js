@@ -8,9 +8,10 @@ const renderer = new THREE.WebGLRenderer({
   canvas, antialias: true, alpha: true, powerPreference: 'high-performance'
 });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
-renderer.setClearColor(0x000000, 0);
+renderer.setClearColor(0xf2f4f1, 0);
 
 const scene = new THREE.Scene();
+scene.fog = new THREE.Fog(0xf2f4f1, 8, 22);
 const camera = new THREE.PerspectiveCamera(42, 1, 0.1, 100);
 camera.position.set(0.2, 0.55, 5.8);
 const heroTarget = new THREE.Vector3(0.4, 0.45, 0);
@@ -26,23 +27,23 @@ heroOrbit.touches = { ONE: THREE.TOUCH.PAN, TWO: THREE.TOUCH.DOLLY_ROTATE };
 
 
 // Soft ambient + cool key light
-scene.add(new THREE.AmbientLight(0x6ea8ff, 0.35));
-const key = new THREE.DirectionalLight(0x9ae6ff, 1.1);
+scene.add(new THREE.AmbientLight(0xffffff, 0.75));
+const key = new THREE.DirectionalLight(0xffffff, 0.95);
 key.position.set(3, 4, 5);
 scene.add(key);
-const rim = new THREE.DirectionalLight(0xa78bfa, 0.55);
+const rim = new THREE.DirectionalLight(0xc4b5fd, 0.45);
 rim.position.set(-4, 1, -2);
 scene.add(rim);
 
 // ── Ego vehicle (simplified box + cabin) ──
 const ego = new THREE.Group();
 const bodyMat = new THREE.MeshStandardMaterial({
-  color: 0x0e1626, metalness: 0.7, roughness: 0.35,
-  emissive: 0x0a2030, emissiveIntensity: 0.25
+  color: 0x1e293b, metalness: 0.55, roughness: 0.4,
+  emissive: 0x0ea5e9, emissiveIntensity: 0.08
 });
 const accentMat = new THREE.MeshStandardMaterial({
-  color: 0x6ee7ff, metalness: 0.4, roughness: 0.2,
-  emissive: 0x6ee7ff, emissiveIntensity: 0.55
+  color: 0x0891b2, metalness: 0.35, roughness: 0.25,
+  emissive: 0x22d3ee, emissiveIntensity: 0.65
 });
 const body = new THREE.Mesh(new THREE.BoxGeometry(1.05, 0.28, 2.1), bodyMat);
 body.position.y = 0.18;
@@ -60,10 +61,10 @@ ego.position.set(-0.6, 0, 0.4);
 scene.add(ego);
 
 // ── Ground grid (subtle) ──
-const grid = new THREE.GridHelper(18, 36, 0x1c3a4a, 0x121a28);
+const grid = new THREE.GridHelper(18, 36, 0xa8b0a8, 0xd0d6cf);
 grid.position.y = 0;
 grid.material.transparent = true;
-grid.material.opacity = 0.55;
+grid.material.opacity = 0.7;
 scene.add(grid);
 
 // ── Sparse queries floating as glowing orbs with trails ──
@@ -92,7 +93,7 @@ for (let i = 0; i < N; i++) {
   // soft halo
   const halo = new THREE.Mesh(
     new THREE.SphereGeometry(0.14, 12, 12),
-    new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.12 })
+    new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.18 })
   );
   mesh.add(halo);
 
@@ -107,7 +108,7 @@ for (let i = 0; i < N; i++) {
 
 // Connecting arcs between nearby queries (sparse graph)
 const lineMat = new THREE.LineBasicMaterial({
-  color: 0x6ee7ff, transparent: true, opacity: 0.18
+  color: 0x0e7490, transparent: true, opacity: 0.28
 });
 const linkGeom = new THREE.BufferGeometry();
 const linkPos = [];
@@ -190,7 +191,7 @@ for (let i = 0; i < dustCount; i++) {
 dustGeo.setAttribute('position', new THREE.BufferAttribute(dustArr, 3));
 const dust = new THREE.Points(
   dustGeo,
-  new THREE.PointsMaterial({ color: 0x8ecae6, size: 0.025, transparent: true, opacity: 0.45 })
+  new THREE.PointsMaterial({ color: 0x64748b, size: 0.022, transparent: true, opacity: 0.35 })
 );
 scene.add(dust);
 

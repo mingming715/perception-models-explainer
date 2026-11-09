@@ -9,7 +9,7 @@ function makeRenderer(canvas) {
     canvas, antialias: true, alpha: true, powerPreference: 'high-performance'
   });
   renderer.setPixelRatio(Math.min(devicePixelRatio || 1, 2));
-  renderer.setClearColor(0x05070c, 1);
+  renderer.setClearColor(0xf4f5f2, 1);
   return renderer;
 }
 
@@ -81,6 +81,7 @@ function attachOrbit(camera, domElement, targetVec) {
     root.traverse((obj) => {
       if (obj.isLight || obj.isCamera) return;
       if (obj.type === 'GridHelper' || obj.type === 'AxesHelper') return;
+      if (obj.userData && obj.userData.skipFit) return;
       if (!(obj.isMesh || obj.isLine || obj.isLineSegments || obj.isPoints)) return;
       const was = obj.visible;
       obj.visible = true; // include hidden step objects so framing stays safe
@@ -250,7 +251,8 @@ window.addEventListener('lab:step', (e) => {
 });
 
 /* ════════════════════════════════════════════
-   StreamPETR — FIFO queue + ego align + hybrid
+   StreamPETR — street scene + query boxes + queue
+   (light theme; scroll-synced steps)
    ════════════════════════════════════════════ */
 function initStreamPETR() {
   const canvas = document.getElementById('lab-streampetr');
@@ -258,147 +260,594 @@ function initStreamPETR() {
   const root = canvas.closest('.method-scrolly') || canvas.closest('.lab');
   const renderer = makeRenderer(canvas);
   const scene = new THREE.Scene();
-  const camera = new THREE.PerspectiveCamera(42, 1, 0.1, 100);
-  camera.position.set(0, 3.2, 6.2);
-  const orbit = attachOrbit(camera, canvas, new THREE.Vector3(0, 0.6, 0));
-  scene.add(new THREE.AmbientLight(0x88aaff, 0.45));
-  const key = new THREE.DirectionalLight(0xffffff, 0.9);
-  key.position.set(3, 5, 4); scene.add(key);
+  scene.fog = new THREE.Fog(0xf4f5f2, 14, 32);
+  const camera = new THREE.PerspectiveCamera(42, 1, 0.1, 80);
+  camera.position.set(5.5, 5.0, 8.5);
+  const orbit = attachOrbit(camera, canvas, new THREE.Vector3(0, 0.7, 0.4));
 
-  const grid = new THREE.GridHelper(12, 24, 0x1c3a4a, 0x121a28);
-  grid.material.transparent = true; grid.material.opacity = 0.5;
+  scene.add(new THREE.AmbientLight(0xffffff, 0.78));
+  const key = new THREE.DirectionalLight(0xffffff, 0.95);
+  key.position.set(5, 8, 4); scene.add(key);
+  const fill = new THREE.DirectionalLight(0xc4b5fd, 0.35);
+  fill.position.set(-4, 3, -2); scene.add(fill);
+
+  // ── Ground + road lanes ──
+  const ground = new THREE.Mesh(
+    new THREE.PlaneGeometry(28, 28),
+    new THREE.MeshStandardMaterial({ color: 0xe6ebe3, roughness: 0.95, metalness: 0 })
+  );
+  ground.rotation.x = -Math.PI / 2;
+  ground.position.y = -0.001;
+  ground.userData.skipFit = true;
+  scene.add(ground);
+
+  const road = new THREE.Mesh(
+    new THREE.PlaneGeometry(6.2, 26),
+    new THREE.MeshStandardMaterial({ color: 0x9aa3a8, roughness: 0.92, metalness: 0.05 })
+  );
+  road.rotation.x = -Math.PI / 2;
+  road.position.y = 0.002;
+  road.userData.skipFit = true;
+  scene.add(road);
+
+  const laneMat = new THREE.MeshBasicMaterial({ color: 0xf8fafc });
+  for (let i = -10; i <= 10; i++) {
+    if (i === 0) continue;
+    const dash = new THREE.Mesh(new THREE.PlaneGeometry(0.12, 0.9), laneMat);
+    dash.rotation.x = -Math.PI / 2;
+    dash.position.set(0, 0.01, i * 1.4);
+    dash.userData.skipFit = true;
+    scene.add(dash);
+  }
+  // curb lines
+  [-3.05, 3.05].forEach((x) => {
+    const curb = new THREE.Mesh(new THREE.PlaneGeometry(0.08, 26), new THREE.MeshBasicMaterial({ color: 0xf1f5f9 }));
+    curb.rotation.x = -Math.PI / 2;
+    curb.position.set(x, 0.01, 0);
+    curb.userData.skipFit = true;
+    scene.add(curb);
+  });
+
+  // soft distant grid (subtle)
+  const grid = new THREE.GridHelper(24, 24, 0xb8c0b8, 0xd5dbd4);
+  grid.position.y = 0.003;
+  grid.material.transparent = true;
+  grid.material.opacity = 0.35;
   scene.add(grid);
 
-  // Ego
-  const ego = new THREE.Mesh(
-    new THREE.BoxGeometry(0.9, 0.28, 1.8),
-    new THREE.MeshStandardMaterial({ color: 0x1a2438, metalness: 0.6, roughness: 0.35, emissive: 0x0a2030, emissiveIntensity: 0.3 })
-  );
-  ego.position.set(0, 0.14, 0);
+  // ── Low-poly vehicle builder ──
+  function makeCar(color, len = 1.9, wid = 0.9, h = 0.55) {
+    const g = new THREE.Group();
+    const body = new THREE.Mesh(
+      new THREE.BoxGeometry(wid, h * 0.55, len),
+      new THREE.MeshStandardMaterial({ color, metalness: 0.45, roughness: 0.4 })
+    );
+    body.position.y = h * 0.32;
+    g.add(body);
+    const cabin = new THREE.Mesh(
+      new THREE.BoxGeometry(wid * 0.85, h * 0.42, len * 0.45),
+      new THREE.MeshStandardMaterial({ color: 0x1e293b, metalness: 0.3, roughness: 0.35, transparent: true, opacity: 0.85 })
+    );
+    cabin.position.set(0, h * 0.72, -len * 0.05);
+    g.add(cabin);
+    const lampMat = new THREE.MeshStandardMaterial({
+      color: 0xfbbf24, emissive: 0xfbbf24, emissiveIntensity: 0.7
+    });
+    [-wid * 0.32, wid * 0.32].forEach((x) => {
+      const lamp = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.06, 0.05), lampMat);
+      lamp.position.set(x, h * 0.35, len * 0.5);
+      g.add(lamp);
+    });
+    return g;
+  }
+
+  const ego = makeCar(0x0e7490, 2.0, 0.95, 0.58);
+  ego.position.set(0, 0, 0);
   scene.add(ego);
 
-  // Memory queue slots (FIFO) — left side
-  const queueGroup = new THREE.Group();
-  queueGroup.position.set(-2.6, 0.9, 0);
-  scene.add(queueGroup);
-  const slots = [];
-  for (let k = 0; k < 5; k++) {
-    const col = new THREE.Group();
-    col.position.x = k * 0.55;
-    for (let n = 0; n < 3; n++) {
-      const q = glowSphere(0.12, 0x6ee7ff);
-      q.position.y = n * 0.35;
-      q.material.opacity = 0.35;
-      col.add(q);
-      slots.push({ mesh: q, k, n });
-    }
-    queueGroup.add(col);
-  }
-  // label plane via sprite-like box
-  const queueFrame = wireBox(2.9, 1.3, 0.4, 0x6ee7ff, 0.35);
-  queueFrame.position.set(1.1, 0.35, 0);
-  queueGroup.add(queueFrame);
+  // Surrounding traffic (move along road)
+  const traffic = [
+    { car: makeCar(0xdc2626, 1.8, 0.88, 0.52), x: -2.0, z: 5.5, speed: 0.55, phase: 0.2 },
+    { car: makeCar(0x1d4ed8, 2.1, 0.95, 0.6), x: 2.1, z: -4.2, speed: 0.42, phase: 1.1 },
+    { car: makeCar(0x15803d, 1.7, 0.85, 0.5), x: -1.9, z: -7.5, speed: 0.48, phase: 2.4 },
+    { car: makeCar(0x7c3aed, 1.85, 0.9, 0.55), x: 2.0, z: 8.0, speed: 0.38, phase: 0.7 },
+  ];
+  traffic.forEach((tr) => {
+    tr.car.position.set(tr.x, 0, tr.z);
+    tr.car.traverse((o) => { o.userData.skipFit = true; });
+    scene.add(tr.car);
+  });
 
-  // Current queries
-  const currGroup = new THREE.Group();
-  currGroup.position.set(0.2, 0.5, 1.6);
-  scene.add(currGroup);
-  const currQs = [];
-  for (let i = 0; i < 6; i++) {
-    const q = glowSphere(0.13, 0xf472b6);
-    q.position.set((i % 3) * 0.4 - 0.4, Math.floor(i / 3) * 0.4, 0);
-    currGroup.add(q);
-    currQs.push(q);
-  }
-
-  // Propagated (aligned) queries mid
-  const propGroup = new THREE.Group();
-  propGroup.position.set(-0.6, 0.7, -0.8);
-  scene.add(propGroup);
-  const propQs = [];
-  for (let i = 0; i < 6; i++) {
-    const q = glowSphere(0.11, 0xa78bfa);
-    q.position.set((i % 3) * 0.35 - 0.35, Math.floor(i / 3) * 0.35, 0);
-    q.visible = false;
-    propGroup.add(q);
-    propQs.push(q);
-  }
-
-  // Image feature planes (current)
-  const imgGroup = new THREE.Group();
-  imgGroup.position.set(2.2, 1.0, 0);
-  scene.add(imgGroup);
-  for (let i = 0; i < 4; i++) {
-    const p = new THREE.Mesh(
-      new THREE.PlaneGeometry(0.7, 0.45),
-      new THREE.MeshStandardMaterial({ color: 0x34d399, emissive: 0x14532d, emissiveIntensity: 0.4, side: THREE.DoubleSide, transparent: true, opacity: 0.55 })
+  // ── 6 camera frustums (translucent fans) ──
+  function makeFrustumFan(yaw, color) {
+    const g = new THREE.Group();
+    const near = 0.35, far = 3.4, nw = 0.22, fw = 1.55, nh = 0.14, fh = 0.85;
+    const corners = [
+      new THREE.Vector3(-nw, -nh, near), new THREE.Vector3(nw, -nh, near),
+      new THREE.Vector3(nw, nh, near), new THREE.Vector3(-nw, nh, near),
+      new THREE.Vector3(-fw, -fh, far), new THREE.Vector3(fw, -fh, far),
+      new THREE.Vector3(fw, fh, far), new THREE.Vector3(-fw, fh, far),
+    ];
+    const edgeIdx = [
+      [0,1],[1,2],[2,3],[3,0],
+      [4,5],[5,6],[6,7],[7,4],
+      [0,4],[1,5],[2,6],[3,7],
+    ];
+    const pts = [];
+    edgeIdx.forEach(([a, b]) => { pts.push(corners[a], corners[b]); });
+    const line = new THREE.LineSegments(
+      new THREE.BufferGeometry().setFromPoints(pts),
+      new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.55 })
     );
-    p.position.set(0, (i - 1.5) * 0.55, 0);
-    p.rotation.y = -0.4;
-    imgGroup.add(p);
+    g.add(line);
+    // translucent fan faces (side + far)
+    const fanMat = new THREE.MeshBasicMaterial({
+      color, transparent: true, opacity: 0.08, side: THREE.DoubleSide, depthWrite: false
+    });
+    const faces = [
+      [0,1,5,4], [1,2,6,5], [2,3,7,6], [3,0,4,7], [4,5,6,7],
+    ];
+    faces.forEach((idx) => {
+      const geo = new THREE.BufferGeometry();
+      const v = idx.flatMap((i) => [corners[i].x, corners[i].y, corners[i].z]);
+      // two tris
+      const pos = new Float32Array([
+        v[0],v[1],v[2], v[3],v[4],v[5], v[6],v[7],v[8],
+        v[0],v[1],v[2], v[6],v[7],v[8], v[9],v[10],v[11],
+      ]);
+      geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+      geo.computeVertexNormals();
+      g.add(new THREE.Mesh(geo, fanMat));
+    });
+    g.rotation.y = yaw;
+    g.position.y = 0.55;
+    return g;
   }
 
-  // Attention links
-  const linkMat = new THREE.LineBasicMaterial({ color: 0x6ee7ff, transparent: true, opacity: 0.0 });
-  const linkGeo = new THREE.BufferGeometry().setFromPoints([
-    new THREE.Vector3(0, 0.5, 1.6),
-    new THREE.Vector3(-0.6, 0.7, -0.8),
-    new THREE.Vector3(0, 0.5, 1.6),
-    new THREE.Vector3(2.8, 1.0, 0)
-  ]);
-  const links = new THREE.LineSegments(linkGeo, linkMat);
-  scene.add(links);
+  const frustumGroup = new THREE.Group();
+  const yaws = [-1.2, -0.6, 0, 0.6, 1.2, Math.PI];
+  const frustCols = [0x0891b2, 0x0891b2, 0x0891b2, 0x0891b2, 0x0891b2, 0x7c3aed];
+  yaws.forEach((yaw, i) => frustumGroup.add(makeFrustumFan(yaw, frustCols[i])));
+  scene.add(frustumGroup);
+
+  // Static fit anchors (traffic excluded from fit because it wraps far)
+  const fitAnchors = new THREE.Group();
+  [
+    [0, 0.6, 0], [3.6, 1.4, 3.6], [-3.6, 1.4, 3.6], [3.6, 1.4, -3.6], [-3.6, 1.4, -3.6],
+    [-6.8, 1.2, 0], [-6.8, 1.2, 2.2], [-6.8, 1.2, -2.2], [0, 2.4, 0],
+    [2.8, 1.6, 0], [-2.8, 1.6, 0],
+  ].forEach(([x,y,z]) => {
+    const a = new THREE.Mesh(
+      new THREE.BoxGeometry(0.45, 0.45, 0.45),
+      new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false })
+    );
+    a.position.set(x, y, z);
+    fitAnchors.add(a);
+  });
+  scene.add(fitAnchors);
+
+  // Current image planes at frustum far (step 5) — placeholder gradient textures
+  const imgGroup = new THREE.Group();
+  imgGroup.visible = false;
+  scene.add(imgGroup);
+  function makePlaceholderTex(hue) {
+    const c = document.createElement('canvas');
+    c.width = 128; c.height = 80;
+    const ctx = c.getContext('2d');
+    const grd = ctx.createLinearGradient(0, 0, 128, 80);
+    grd.addColorStop(0, `hsl(${hue}, 35%, 72%)`);
+    grd.addColorStop(0.5, `hsl(${hue + 20}, 28%, 58%)`);
+    grd.addColorStop(1, `hsl(${hue - 10}, 22%, 48%)`);
+    ctx.fillStyle = grd;
+    ctx.fillRect(0, 0, 128, 80);
+    // faux road + car silhouette
+    ctx.fillStyle = 'rgba(30,41,59,.35)';
+    ctx.fillRect(0, 48, 128, 32);
+    ctx.fillStyle = 'rgba(248,250,252,.55)';
+    ctx.fillRect(40, 30, 48, 22);
+    ctx.fillStyle = 'rgba(15,23,42,.25)';
+    for (let i = 0; i < 8; i++) ctx.fillRect(8 + i * 15, 10, 6, 6);
+    const tex = new THREE.CanvasTexture(c);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    return tex;
+  }
+  const imgPlanes = [];
+  yaws.slice(0, 6).forEach((yaw, i) => {
+    const tex = makePlaceholderTex(190 + i * 18);
+    const plane = new THREE.Mesh(
+      new THREE.PlaneGeometry(1.5, 0.95),
+      new THREE.MeshBasicMaterial({ map: tex, transparent: true, opacity: 0.92, side: THREE.DoubleSide })
+    );
+    const f = farPos(yaw, 3.15);
+    plane.position.copy(f);
+    plane.position.y = 0.85;
+    plane.lookAt(0, 0.85, 0);
+    imgGroup.add(plane);
+    imgPlanes.push(plane);
+  });
+  function farPos(yaw, dist) {
+    return new THREE.Vector3(Math.sin(yaw) * dist, 0, Math.cos(yaw) * dist);
+  }
+
+  // ── Query box attached to a vehicle (wire box + glowing ref point) ──
+  function makeQueryBox(col, size = [0.95, 0.7, 1.7]) {
+    const g = new THREE.Group();
+    const [w, h, d] = size;
+    const edges = new THREE.LineSegments(
+      new THREE.EdgesGeometry(new THREE.BoxGeometry(w, h, d)),
+      new THREE.LineBasicMaterial({ color: col, transparent: true, opacity: 0.95 })
+    );
+    edges.position.y = h * 0.5;
+    g.add(edges);
+    const fill = new THREE.Mesh(
+      new THREE.BoxGeometry(w, h, d),
+      new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.12, depthWrite: false })
+    );
+    fill.position.y = h * 0.5;
+    g.add(fill);
+    const ref = new THREE.Mesh(
+      new THREE.SphereGeometry(0.07, 12, 12),
+      new THREE.MeshStandardMaterial({
+        color: col, emissive: col, emissiveIntensity: 1.1,
+        transparent: true, opacity: 0.95
+      })
+    );
+    ref.position.y = h * 0.5;
+    g.add(ref);
+    g.userData = { edges, fill, ref, col };
+    return g;
+  }
+
+  // Current-frame queries on nearby cars (world space, follow cars)
+  const currQueries = [
+    { box: makeQueryBox(0xdb2777), trafficIdx: 0, offset: new THREE.Vector3(0, 0, 0) },
+    { box: makeQueryBox(0xdb2777, [0.9, 0.65, 1.9]), trafficIdx: 1, offset: new THREE.Vector3(0, 0, 0) },
+    { box: makeQueryBox(0xdb2777, [0.85, 0.6, 1.6]), trafficIdx: 2, offset: new THREE.Vector3(0, 0, 0) },
+    { box: makeQueryBox(0xdb2777), trafficIdx: 3, offset: new THREE.Vector3(0, 0, 0) },
+  ];
+  const currGroup = new THREE.Group();
+  currGroup.visible = false;
+  currQueries.forEach((q) => {
+    q.box.traverse((o) => { o.userData.skipFit = true; });
+    currGroup.add(q.box);
+  });
+  scene.add(currGroup);
+
+  // Memory queue: layered along time axis (−X / past), Top-K boxes per layer
+  const QUEUE_LAYERS = 4;
+  const queueRoot = new THREE.Group();
+  queueRoot.position.set(-3.2, 0.4, 0);
+  queueRoot.visible = false;
+  scene.add(queueRoot);
+  const queueLayers = [];
+  const qCols = [0x0891b2, 0x0e7490, 0x155e75, 0x164e63];
+  for (let L = 0; L < QUEUE_LAYERS; L++) {
+    const layer = new THREE.Group();
+    layer.position.x = -L * 1.05;
+    const boxes = [];
+    for (let k = 0; k < 3; k++) {
+      const b = makeQueryBox(qCols[L], [0.7, 0.5, 1.2]);
+      b.position.set(0, 0, (k - 1) * 1.5);
+      b.scale.setScalar(1 - L * 0.06);
+      const op = 0.95 - L * 0.18;
+      b.userData.edges.material.opacity = op;
+      b.userData.fill.material.opacity = 0.08;
+      b.userData.ref.material.opacity = op;
+      layer.add(b);
+      boxes.push(b);
+    }
+    // time-axis label tick
+    const tick = new THREE.Mesh(
+      new THREE.BoxGeometry(0.06, 0.06, 4.2),
+      new THREE.MeshBasicMaterial({ color: 0x94a3b8, transparent: true, opacity: 0.5 })
+    );
+    tick.position.set(0, 0.05, 0);
+    layer.add(tick);
+    queueRoot.add(layer);
+    queueLayers.push({ group: layer, boxes, age: L });
+  }
+  // time axis line
+  const axis = new THREE.Line(
+    new THREE.BufferGeometry().setFromPoints([
+      new THREE.Vector3(0.5, 0.15, 0), new THREE.Vector3(-QUEUE_LAYERS * 1.05 - 0.3, 0.15, 0)
+    ]),
+    new THREE.LineBasicMaterial({ color: 0x64748b, transparent: true, opacity: 0.55 })
+  );
+  queueRoot.add(axis);
+
+  // Propagated / aligned past queries (step 3) — copies that slide toward current
+  const alignedGroup = new THREE.Group();
+  alignedGroup.visible = false;
+  scene.add(alignedGroup);
+  const aligned = [];
+  for (let i = 0; i < 6; i++) {
+    const b = makeQueryBox(0x7c3aed, [0.75, 0.55, 1.3]);
+    alignedGroup.add(b);
+    aligned.push({
+      box: b,
+      from: new THREE.Vector3(-4.5 - (i % 3) * 0.2, 0.3, (i % 3 - 1) * 1.4),
+      to: new THREE.Vector3(
+        traffic[i % traffic.length].x * 0.85,
+        0,
+        traffic[i % traffic.length].z * 0.55
+      ),
+      u: 0,
+    });
+  }
+
+  // Hybrid attention links (dashed flowing lines)
+  const attnGroup = new THREE.Group();
+  attnGroup.visible = false;
+  scene.add(attnGroup);
+  const attnLines = [];
+  function rebuildAttn() {
+    while (attnGroup.children.length) {
+      const ch = attnGroup.children[0];
+      attnGroup.remove(ch);
+      ch.geometry?.dispose?.();
+    }
+    attnLines.length = 0;
+    currQueries.forEach((cq, ci) => {
+      queueLayers.forEach((layer, li) => {
+        layer.boxes.forEach((qb, ki) => {
+          if ((ci + ki + li) % 2 !== 0 && li > 1) return; // sparse
+          const weight = Math.max(0.15, 1 - li * 0.22 - Math.abs(ki - 1) * 0.1);
+          const mat = new THREE.LineDashedMaterial({
+            color: weight > 0.55 ? 0x0891b2 : 0x7c3aed,
+            transparent: true,
+            opacity: 0.25 + weight * 0.55,
+            dashSize: 0.18,
+            gapSize: 0.12,
+            linewidth: 1,
+          });
+          const geo = new THREE.BufferGeometry().setFromPoints([
+            new THREE.Vector3(), new THREE.Vector3()
+          ]);
+          const line = new THREE.Line(geo, mat);
+          line.computeLineDistances();
+          attnGroup.add(line);
+          attnLines.push({ line, cq, qb, weight, mat, dash: 0 });
+        });
+      });
+    });
+  }
+  rebuildAttn();
+
+  // Image cross-attn rays (step 5)
+  const rayGroup = new THREE.Group();
+  rayGroup.visible = false;
+  scene.add(rayGroup);
+  const rays = [];
+  currQueries.forEach((cq, ci) => {
+    const plane = imgPlanes[ci % imgPlanes.length];
+    const mat = new THREE.LineBasicMaterial({
+      color: 0x059669, transparent: true, opacity: 0.65
+    });
+    const geo = new THREE.BufferGeometry().setFromPoints([
+      new THREE.Vector3(), new THREE.Vector3()
+    ]);
+    const line = new THREE.Line(geo, mat);
+    rayGroup.add(line);
+    rays.push({ line, cq, plane });
+  });
+
+  // Velocity / Δt correction markers (step 3)
+  const corrGroup = new THREE.Group();
+  corrGroup.visible = false;
+  scene.add(corrGroup);
+  aligned.forEach((a) => {
+    const arrow = new THREE.ArrowHelper(
+      new THREE.Vector3(1, 0, 0.2).normalize(),
+      new THREE.Vector3(),
+      0.7,
+      0xf59e0b,
+      0.18,
+      0.12
+    );
+    corrGroup.add(arrow);
+    a.arrow = arrow;
+  });
 
   const steps = [
-    { title: '1. 현재 프레임 쿼리', body: '현재 멀티뷰에서 초기 object query(분홍)가 만들어집니다. 아직 메모리와 섞이지 않은 상태입니다.', phase: 0 },
-    { title: '2. FIFO Memory Queue', body: '과거 Top-K foreground query가 큐(왼쪽, 청록)에 저장되어 있습니다. 크기는 고정 — 새 값이 들어오면 가장 오래된 것이 빠집니다.', phase: 1 },
-    { title: '3. Ego Transform + MLN', body: '큐의 쿼리 중심을 현재 ego 좌표로 명시 변환하고, E·v·Δt로 조건화된 MLN이 암묵적 모션을 보정합니다. 정렬된 쿼리(보라)가 나타납니다.', phase: 2 },
-    { title: '4. Hybrid Attention', body: '현재 쿼리를 Q로, 현재 쿼리+전체 큐를 K/V로 두는 hybrid attention으로 시간 정보를 섞습니다.', phase: 3 },
-    { title: '5. 이미지 Cross-Attn', body: '이어서 현재 프레임 이미지 feature에 cross-attention하여 검출을 갱신합니다. 과거 이미지는 다시 보지 않습니다.', phase: 4 },
-    { title: '6. Top-K → 큐 갱신', body: 'foreground Top-K만 골라 Updated Memory Queue에 push합니다. 다음 프레임에서 같은 루프가 반복됩니다.', phase: 5 }
+    { title: '1. 현재 프레임 쿼리', body: '주변 차량에 붙은 3D query box(분홍)와 기준점이 현재 프레임에서 나타납니다. 아직 메모리와 섞이지 않습니다.', phase: 0 },
+    { title: '2. FIFO Memory Queue', body: '과거 Top-K foreground query가 시간축을 따라 층층이 쌓입니다. 오래된 레이어일수록 흐려집니다.', phase: 1 },
+    { title: '3. Ego Transform + MLN', body: '자차가 전진하며 과거 박스가 현재 좌표로 미끄러져 옵니다. 주황 화살표는 v·Δt 보정(MLN)을 나타냅니다.', phase: 2 },
+    { title: '4. Hybrid Attention', body: '현재 쿼리(Q)와 메모리 큐(K/V) 사이 점선이 흐릅니다. 굵고 밝은 선일수록 attention weight가 큽니다.', phase: 3 },
+    { title: '5. 이미지 Cross-Attn', body: '쿼리에서 현재 카메라 frustum·이미지 평면으로 광선이 닿습니다. 과거 이미지는 다시 보지 않습니다.', phase: 4 },
+    { title: '6. Top-K → 큐 갱신', body: '점수가 높은 박스가 큐 맨 앞으로 올라가고, 가장 오래된 레이어는 빠져나갑니다.', phase: 5 },
   ];
 
   let phase = 0;
+  let phaseT0 = performance.now();
+  let egoBaseZ = 0;
+
   function applyPhase(p) {
     phase = p;
-    slots.forEach(s => { s.mesh.material.opacity = p >= 1 ? 0.85 : 0.25; });
-    propQs.forEach(q => { q.visible = p >= 2; });
-    linkMat.opacity = p >= 3 ? 0.55 : 0;
+    phaseT0 = performance.now();
+    currGroup.visible = p >= 0;
+    queueRoot.visible = p >= 1;
+    alignedGroup.visible = p >= 2 && p < 5;
+    corrGroup.visible = p === 2;
+    attnGroup.visible = p === 3;
     imgGroup.visible = p >= 4;
-    // emphasize top-k selection
-    currQs.forEach((q, i) => {
-      q.material.emissiveIntensity = p >= 5 ? (i < 3 ? 1.2 : 0.2) : 0.85;
-      q.material.opacity = p >= 5 && i >= 3 ? 0.25 : 0.95;
+    rayGroup.visible = p === 4;
+
+    // reset queue layer opacities / positions
+    queueLayers.forEach((layer, L) => {
+      layer.group.visible = true;
+      layer.group.position.x = -L * 1.05;
+      layer.group.position.y = 0;
+      const op = 0.95 - L * 0.18;
+      layer.boxes.forEach((b) => {
+        b.userData.edges.material.opacity = op;
+        b.userData.ref.material.opacity = op;
+        b.userData.edges.material.color.set(qCols[L]);
+        b.userData.ref.material.color.set(qCols[L]);
+        b.userData.ref.material.emissive.set(qCols[L]);
+        b.scale.setScalar(1 - L * 0.06);
+      });
     });
+
     if (p >= 5) {
-      slots.forEach((s, i) => { if (i < 3) s.mesh.material.color.set(0xf472b6); });
-    } else {
-      slots.forEach(s => s.mesh.material.color.set(0x6ee7ff));
+      // top-k rise: first layer becomes pink (updated), oldest exits
+      queueLayers[0].boxes.forEach((b) => {
+        b.userData.edges.material.color.set(0xdb2777);
+        b.userData.ref.material.color.set(0xdb2777);
+        b.userData.ref.material.emissive.set(0xdb2777);
+        b.userData.ref.material.emissiveIntensity = 1.3;
+      });
     }
+
+    aligned.forEach((a) => { a.u = 0; a.box.position.copy(a.from); });
+    ego.position.z = 0;
+    egoBaseZ = 0;
+    // sync sticky caption if present
+    const cap = root?.querySelector?.('[data-role="sticky-caption"]');
+    const stepMeta = steps.find((s) => s.phase === p) || steps[p];
+    if (cap && stepMeta) cap.textContent = stepMeta.title.replace(/^\d+\.\s*/, '');
+    orbit.controls.update();
+    renderer.render(scene, camera);
   }
 
-    bindLabUI(root, steps, (i) => { applyPhase(steps[i].phase); orbit.easeHome(); }, 'streampetr');
+  bindLabUI(root, steps, (i) => { applyPhase(steps[i].phase); orbit.easeHome(); }, 'streampetr');
   __labDebug['streampetr'] = { scene, camera, canvas, orbit, renderer };
 
   let running = false;
-  const io = new IntersectionObserver(([e]) => { running = e.isIntersecting; }, { threshold: 0.15 });
+  const io = new IntersectionObserver(([e]) => { running = e.isIntersecting; }, { threshold: 0.12 });
   io.observe(canvas);
   fit(renderer, camera, canvas);
-  orbit.fitContent(scene);
+  // initial visibility for fit bounds
+  currGroup.visible = true;
+  queueRoot.visible = true;
+  imgGroup.visible = true;
+  orbit.fitContent(scene, 1.22);
+  currGroup.visible = false;
+  queueRoot.visible = false;
+  imgGroup.visible = false;
+  applyPhase(0);
+
   window.addEventListener('resize', () => {
     fit(renderer, camera, canvas);
-    orbit.fitContent(scene);
+    orbit.fitContent(scene, 1.22);
   });
-  let t0 = performance.now();
+
+  const _tmp = new THREE.Vector3();
+  const _tmp2 = new THREE.Vector3();
+
   function frame(now) {
     requestAnimationFrame(frame);
-    if (!running) return;
-    const t = (now - t0) / 1000;
-    if (!reduceMotion) {
-      ego.rotation.y = Math.sin(t * 0.4) * 0.15;
-      queueGroup.position.y = 0.9 + Math.sin(t * 0.8) * 0.03;
-      if (phase >= 2) propGroup.rotation.y = Math.sin(t) * 0.1;
+    if (!running) {
+      orbit.controls.update();
+      return;
     }
+    const clock = now * 0.001;
+    const elapsed = (now - phaseT0) / 1000;
+    const motion = reduceMotion ? 0 : 1;
+
+    // traffic motion
+    traffic.forEach((tr) => {
+      if (motion) {
+        tr.car.position.z = ((tr.z + clock * tr.speed * 1.2 + tr.phase * 3) % 14) - 7;
+      } else {
+        tr.car.position.z = tr.z;
+      }
+    });
+
+    // sync current query boxes to cars
+    currQueries.forEach((q) => {
+      const car = traffic[q.trafficIdx].car;
+      q.box.position.set(car.position.x, 0.02, car.position.z);
+      q.box.rotation.y = car.rotation.y;
+      if (!reduceMotion) {
+        q.box.userData.ref.material.emissiveIntensity = 0.85 + Math.sin(clock * 3 + q.trafficIdx) * 0.25;
+      }
+    });
+
+    // ego nudge on step 3
+    if (phase === 2 && motion) {
+      ego.position.z = Math.min(1.8, elapsed * 0.55);
+      frustumGroup.position.z = ego.position.z;
+    } else if (phase !== 2) {
+      // keep ego near 0 except mild idle
+      if (motion && phase < 2) ego.position.z = Math.sin(clock * 0.35) * 0.08;
+      frustumGroup.position.z = ego.position.z;
+    }
+    frustumGroup.position.x = ego.position.x;
+
+    // aligned slide (step 3)
+    if (phase === 2) {
+      aligned.forEach((a, i) => {
+        const u = reduceMotion ? 1 : Math.min(1, elapsed * 0.55 - i * 0.08);
+        a.u = Math.max(0, u);
+        a.box.position.lerpVectors(a.from, a.to, a.u);
+        // slight Δt correction offset
+        a.box.position.x += Math.sin(a.u * Math.PI) * 0.15;
+        if (a.arrow) {
+          a.arrow.position.copy(a.box.position).add(new THREE.Vector3(0.2, 0.55, 0));
+          a.arrow.visible = a.u > 0.15 && a.u < 0.95;
+        }
+      });
+    }
+
+    // attention dash flow (step 4)
+    if (phase === 3) {
+      attnLines.forEach((a) => {
+        const p0 = a.cq.box.getWorldPosition(_tmp);
+        p0.y += 0.35;
+        const p1 = a.qb.getWorldPosition(_tmp2);
+        p1.y += 0.3;
+        const pos = a.line.geometry.attributes.position;
+        pos.setXYZ(0, p0.x, p0.y, p0.z);
+        pos.setXYZ(1, p1.x, p1.y, p1.z);
+        pos.needsUpdate = true;
+        a.line.computeLineDistances();
+        if (motion) {
+          a.mat.dashOffset = -(clock * (1.2 + a.weight * 2.5));
+          a.mat.needsUpdate = true;
+        }
+      });
+    }
+
+    // rays to image planes (step 5)
+    if (phase === 4) {
+      rays.forEach((r) => {
+        const p0 = r.cq.box.getWorldPosition(_tmp);
+        p0.y += 0.35;
+        const p1 = r.plane.getWorldPosition(_tmp2);
+        const pos = r.line.geometry.attributes.position;
+        pos.setXYZ(0, p0.x, p0.y, p0.z);
+        pos.setXYZ(1, p1.x, p1.y, p1.z);
+        pos.needsUpdate = true;
+        if (motion) r.line.material.opacity = 0.45 + Math.sin(clock * 4) * 0.2;
+      });
+    }
+
+    // Top-K update animation (step 6)
+    if (phase === 5) {
+      const u = reduceMotion ? 1 : Math.min(1, elapsed * 0.7);
+      // new layer rises
+      queueLayers[0].group.position.y = (1 - u) * 1.2;
+      queueLayers[0].boxes.forEach((b) => b.scale.setScalar(0.85 + 0.2 * u));
+      // oldest exits left + fade
+      const last = queueLayers[QUEUE_LAYERS - 1];
+      last.group.position.x = -((QUEUE_LAYERS - 1) * 1.05) - u * 1.8;
+      last.boxes.forEach((b) => {
+        b.userData.edges.material.opacity = 0.95 - 0.18 * (QUEUE_LAYERS - 1) - u * 0.7;
+        b.userData.ref.material.opacity = b.userData.edges.material.opacity;
+      });
+      // shift middle layers slightly toward front
+      for (let L = 1; L < QUEUE_LAYERS - 1; L++) {
+        queueLayers[L].group.position.x = -L * 1.05 + u * 0.3;
+      }
+    }
+
+    // queue idle fade by age when visible
+    if (phase >= 1 && phase < 5 && motion) {
+      queueLayers.forEach((layer, L) => {
+        layer.group.position.y = Math.sin(clock * 0.8 + L) * 0.02;
+      });
+    }
+
     orbit.controls.update();
     renderer.render(scene, camera);
   }
@@ -417,9 +866,9 @@ function initS4Dv1() {
   const camera = new THREE.PerspectiveCamera(40, 1, 0.1, 100);
   camera.position.set(4.5, 3.5, 5.5);
   const orbit = attachOrbit(camera, canvas, new THREE.Vector3(0, 0.8, 0));
-  scene.add(new THREE.AmbientLight(0x88aaff, 0.5));
+  scene.add(new THREE.AmbientLight(0xffffff, 0.75));
   const key = new THREE.DirectionalLight(0xffffff, 0.85); key.position.set(2, 4, 3); scene.add(key);
-  scene.add(new THREE.GridHelper(10, 20, 0x1c3a4a, 0x121a28));
+  scene.add(new THREE.GridHelper(10, 20, 0xb8c0b8, 0xd5dbd4));
 
   // T feature frames as vertical stacks of planes
   const T = 4;
@@ -530,9 +979,9 @@ function initS4Dv2() {
   const camera = new THREE.PerspectiveCamera(40, 1, 0.1, 100);
   camera.position.set(0.5, 3.4, 6.5);
   const orbit = attachOrbit(camera, canvas, new THREE.Vector3(0, 0.6, 0));
-  scene.add(new THREE.AmbientLight(0x88aaff, 0.5));
+  scene.add(new THREE.AmbientLight(0xffffff, 0.75));
   const key = new THREE.DirectionalLight(0xffffff, 0.9); key.position.set(3, 5, 2); scene.add(key);
-  scene.add(new THREE.GridHelper(12, 24, 0x1c3a4a, 0x121a28));
+  scene.add(new THREE.GridHelper(12, 24, 0xb8c0b8, 0xd5dbd4));
 
   // Past instances (t-1)
   const past = new THREE.Group();
@@ -656,9 +1105,9 @@ function initS4Dv3() {
   const camera = new THREE.PerspectiveCamera(40, 1, 0.1, 100);
   camera.position.set(0.2, 2.8, 6.2);
   const orbit = attachOrbit(camera, canvas, new THREE.Vector3(0, 0.8, 0));
-  scene.add(new THREE.AmbientLight(0x88aaff, 0.5));
+  scene.add(new THREE.AmbientLight(0xffffff, 0.75));
   const key = new THREE.DirectionalLight(0xffffff, 0.9); key.position.set(3, 4, 3); scene.add(key);
-  scene.add(new THREE.GridHelper(10, 20, 0x1c3a4a, 0x121a28));
+  scene.add(new THREE.GridHelper(10, 20, 0xb8c0b8, 0xd5dbd4));
 
   // GT box vs noisy boxes (denoising)
   const gt = wireBox(1.2, 0.7, 2.0, 0x34d399, 1);
@@ -775,9 +1224,9 @@ function initF4D() {
   const camera = new THREE.PerspectiveCamera(40, 1, 0.1, 120);
   camera.position.set(0.4, 4.2, 8.5);
   const orbit = attachOrbit(camera, canvas, new THREE.Vector3(0, 1.0, 0));
-  scene.add(new THREE.AmbientLight(0x88aaff, 0.5));
+  scene.add(new THREE.AmbientLight(0xffffff, 0.75));
   const key = new THREE.DirectionalLight(0xffffff, 0.95); key.position.set(4, 6, 3); scene.add(key);
-  scene.add(new THREE.GridHelper(16, 32, 0x1c3a4a, 0x121a28));
+  scene.add(new THREE.GridHelper(16, 32, 0xb8c0b8, 0xd5dbd4));
 
   const egoMat = new THREE.MeshStandardMaterial({ color: 0x1a2438, metalness: 0.55, roughness: 0.35, emissive: 0x0a2030, emissiveIntensity: 0.35 });
   const ego = new THREE.Mesh(new THREE.BoxGeometry(1.1, 0.35, 2.2), egoMat);

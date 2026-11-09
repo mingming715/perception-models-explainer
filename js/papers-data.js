@@ -18,12 +18,12 @@ export const PAPERS = {
       '핵심은 <b>object-centric temporal modeling</b>: 메모리 큐 → ego/모션 정렬 → Propagation Transformer → Top-K 갱신 루프입니다.',
     ],
     methodSteps: [
-      { title: '현재 프레임 쿼리', body: '현재 멀티뷰 이미지에서 초기 object query가 생성됩니다.' },
-      { title: 'FIFO Memory Queue', body: '과거 Top-K foreground query가 고정 크기 큐에 저장됩니다. 새 값이 들어오면 가장 오래된 항목이 빠집니다.' },
-      { title: 'Ego Transform + MLN', body: '큐의 쿼리 중심을 현재 ego 좌표로 명시 변환하고, E·v·Δt로 조건화된 MLN이 암묵적 모션을 보정합니다.' },
-      { title: 'Hybrid Attention', body: '현재 쿼리를 Q로, 현재 쿼리+전체 큐를 K/V로 두는 hybrid attention으로 시간 정보를 섞습니다.' },
-      { title: '이미지 Cross-Attn', body: '현재 프레임 이미지 feature에 cross-attention하여 검출을 갱신합니다. 과거 이미지는 다시 보지 않습니다.' },
-      { title: 'Top-K → 큐 갱신', body: 'foreground Top-K만 Updated Memory Queue에 push하고 다음 프레임으로 이어갑니다.' },
+      { title: '현재 프레임 쿼리', body: '주변 차량에 붙은 3D query box와 기준점이 현재 프레임에서 나타납니다. 아직 메모리와 섞이지 않습니다.' },
+      { title: 'FIFO Memory Queue', body: '과거 Top-K foreground query가 시간축을 따라 층층이 쌓입니다. 오래된 레이어일수록 흐려집니다.' },
+      { title: 'Ego Transform + MLN', body: '자차가 전진하며 과거 박스가 현재 좌표로 미끄러져 옵니다. 주황 화살표는 v·Δt 보정(MLN)을 나타냅니다.' },
+      { title: 'Hybrid Attention', body: '현재 쿼리(Q)와 메모리 큐(K/V) 사이 점선이 흐릅니다. 굵고 밝은 선일수록 attention weight가 큽니다.' },
+      { title: '이미지 Cross-Attn', body: '쿼리에서 현재 카메라 frustum·이미지 평면으로 광선이 닿습니다. 과거 이미지는 다시 보지 않습니다.' },
+      { title: 'Top-K → 큐 갱신', body: '점수가 높은 박스가 큐 맨 앞으로 올라가고, 가장 오래된 레이어는 빠져나갑니다.' },
     ],
     methodNotes: [
       'Memory queue는 장기 시간 맥락을 상수 크기로 유지합니다.',

@@ -37,7 +37,7 @@ function renderMega(catId, open) {
           <li>
             <a class="mega-item" href="#${p.id}" data-paper="${p.id}">
               <span class="mega-title">${p.title}</span>
-              <span class="mega-sub">${p.subtitle}${p.arxiv ? ` · arXiv ${p.arxiv}` : ''}</span>
+              <span class="mega-sub">${p.subtitle}${p.meta ? ` · ${p.meta}` : ''}</span>
             </a>
           </li>`).join('')}
       </ul>

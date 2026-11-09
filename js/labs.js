@@ -1691,7 +1691,7 @@ function initS4Dv3() {
 }
 
 /* ════════════════════════════════════════════
-   Foundation4D — scene tokens + multi-head
+   Foundation4D — shared tokens + multi-head
    ════════════════════════════════════════════ */
 function initF4D() {
   const canvas = document.getElementById('lab-f4d');
@@ -1735,7 +1735,7 @@ function initF4D() {
   timeRing.position.set(0, 1.2, 0);
   attnGroup.add(viewRing, timeRing);
 
-  // Scene token lattice
+  // Shared-token lattice (symbolic)
   const tokens = new THREE.Group();
   tokens.position.set(0, 1.35, 0);
   scene.add(tokens);
@@ -1776,7 +1776,7 @@ function initF4D() {
     heads.add(lab);
   });
 
-  // Detection boxes from scene tokens
+  // Detection boxes from shared tokens
   const detGroup = new THREE.Group();
   scene.add(detGroup);
   [[-1.8, 0, 2.2], [2.0, 0, 1.5], [-0.5, 0, -2.5]].forEach((pos) => {
@@ -1789,9 +1789,9 @@ function initF4D() {
   const steps = [
     { title: '1. 멀티 카메라 입력', body: 'C대 카메라 × T 시점 영상이 들어옵니다. 비동기 입력도 표현할 수 있습니다.', phase: 0 },
     { title: '2. Factorized attention', body: '이미지 내부 이후 view/time attention을 번갈아 적용합니다.', phase: 1, zoom: { pos: [4.4, 3.2, 4.6], target: [0, 1.15, 0], dim: 'clutter' } },
-    { title: '3. Scene tokens', body: '장면 전체를 표현하는 scene token 격자가 형성됩니다.', phase: 2, zoom: { pos: [5.0, 4.0, 5.6], target: [0, 1.0, 0], dim: 'clutter' } },
+    { title: '3. 공유 토큰', body: '모든 작업이 함께 읽는 공유 contextual 토큰이 만들어집니다.', phase: 2, zoom: { pos: [5.0, 4.0, 5.6], target: [0, 1.0, 0], dim: 'clutter' } },
     { title: '4. 멀티 헤드 디코더', body: '공유 토큰에서 Geometry · Detection · Occupancy · Gaussian 헤드가 갈라집니다.', phase: 3, zoom: { pos: [0, 3.8, 6.6], target: [0, 2.0, 0], dim: 'heads' } },
-    { title: '5. 3D 검출·점유', body: '검출 박스와 occupancy가 장면 토큰 위에서 동시에 읽힙니다.', phase: 4 },
+    { title: '5. 3D 검출·점유', body: '검출 박스와 occupancy가 공유 토큰에서 동시에 읽힙니다.', phase: 4 },
     { title: '6. Video 추론', body: '윈도우 출력을 pose graph로 정렬하고 객체 트랙을 이어 긴 클립을 처리합니다.', phase: 5 },
   ];
 

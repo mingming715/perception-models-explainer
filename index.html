@@ -40,7 +40,7 @@
     </h1>
     <p class="lede">
       StreamPETR · Sparse4D v1–v3 · Foundation4D.<br>
-      스크롤하며 개요 → Method → Experiment → 정리를 읽습니다.
+      스크롤하며 개요 → 기존 연구와 차별점 → Method → Experiment → 정리를 읽습니다.
     </p>
     <div class="hero-cta">
       <a class="btn primary" href="#stream-petr">Sparse Query부터</a>
@@ -116,7 +116,7 @@
       <div class="card" style="margin-top:18px">
         <h3>한 줄로</h3>
         <p><b>v1</b>은 과거 이미지를 다시 샘플링하고, <b>StreamPETR / v2 / v3</b>는 sparse instance·query 상태를 재귀적으로 넘깁니다. v3는 그 추론 경로를 유지한 채 학습·attention 구조를 다듬은 버전입니다.</p>
-        <p style="margin-top:10px"><b>Foundation4D</b>(Scene Token)는 객체 query가 아니라 장면 토큰으로 geometry·occupancy·Gaussian까지 함께 추정하는 다른 축입니다. <a href="#foundation4d">해설로 이동</a></p>
+        <p style="margin-top:10px"><b>Foundation4D</b>(Scene Token)는 시간 상태를 쿼리로 넘기는 대신, 카메라·시간 방향으로 나눈 attention으로 윈도우 전체를 조밀한 공유 토큰으로 만들고, 그 위에서 깊이·검출·occupancy·Gaussian을 함께 추정하는 다른 축입니다. <a href="#foundation4d">해설로 이동</a></p>
       </div>
     </div>
   </section>

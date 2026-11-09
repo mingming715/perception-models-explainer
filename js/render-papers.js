@@ -1,7 +1,9 @@
 import { PAPERS, PAPER_ORDER } from './papers-data.js';
+import { RELATED_FIGS } from './related-figs.js';
 
 const SEC_LABELS = [
   { id: 'overview', label: '개요' },
+  { id: 'related', label: '차별점' },
   { id: 'method', label: 'Method' },
   { id: 'experiment', label: 'Experiment' },
   { id: 'summary', label: '정리' },
@@ -25,6 +27,22 @@ function tableHTML(t) {
   </div>`;
 }
 
+function relatedHTML(id, r) {
+  const figs = (RELATED_FIGS[id] || []).map(f => `
+      <figure class="rel-fig reveal">
+        <div class="rel-svg">${f.svg()}</div>
+        <figcaption>${f.cap}</figcaption>
+      </figure>`).join('');
+  return `
+    <p class="reveal prose-lead">${r.intro}</p>
+    ${figs}
+    <div class="rel-table reveal">
+      <div class="rel-row rel-head"><span>기존 연구</span><span>한계 (논문 Related work 기준)</span><span>이 논문은</span></div>
+      ${r.rows.map(([who, gap, ours]) => `<div class="rel-row"><b>${who}</b><p>${gap}</p><p class="ours">${ours}</p></div>`).join('')}
+    </div>
+    <p class="rel-take reveal">${r.takeaway}</p>`;
+}
+
 function paperHTML(id, p) {
   const steps = p.methodSteps.map((s, i) => `
     <div class="mstep" data-step="${i}" id="${id}-step-${i}">
@@ -40,7 +58,8 @@ function paperHTML(id, p) {
   </aside>
 
   <header class="paper-hero reveal">
-    <p class="arxiv">${p.venue ? esc(p.venue) + ' · ' : ''}arXiv ${esc(p.arxiv)}</p>
+    <p class="arxiv"><span class="org">${esc(p.org)}</span> · <b>${esc(p.venue)}</b>
+      <a class="arxiv-link" href="https://arxiv.org/abs/${esc(p.arxiv)}" target="_blank" rel="noopener">arXiv ${esc(p.arxiv)} ↗</a></p>
     <h2>${esc(p.title)}</h2>
     <p class="lede">${p.lede}</p>
     <ul class="keypts">${p.tags.map(t => `<li>${esc(t)}</li>`).join('')}</ul>
@@ -53,8 +72,13 @@ function paperHTML(id, p) {
     </div>
   </section>
 
+  <section class="paper-sec" id="${id}-related" data-sec="related">
+    <h2 class="sec-title reveal"><span>02</span> 기존 연구와 차별점</h2>
+    ${relatedHTML(id, p.related)}
+  </section>
+
   <section class="paper-sec" id="${id}-method" data-sec="method">
-    <h2 class="sec-title reveal"><span>02</span> Method</h2>
+    <h2 class="sec-title reveal"><span>03</span> Method</h2>
     <div class="method-scrolly" data-lab="${p.lab}">
       <div class="method-sticky">
         <div class="lab-view sticky-view">
@@ -82,13 +106,13 @@ function paperHTML(id, p) {
   </section>
 
   <section class="paper-sec" id="${id}-experiment" data-sec="experiment">
-    <h2 class="sec-title reveal"><span>03</span> Experiment</h2>
+    <h2 class="sec-title reveal"><span>04</span> Experiment</h2>
     <p class="reveal prose-lead">${esc(p.experiments.intro)}</p>
     ${p.experiments.tables.map(tableHTML).join('')}
   </section>
 
   <section class="paper-sec" id="${id}-summary" data-sec="summary">
-    <h2 class="sec-title reveal"><span>04</span> 정리 · 포팅 관점</h2>
+    <h2 class="sec-title reveal"><span>05</span> 정리 · 포팅 관점</h2>
     <div class="summary-grid">
       <div class="card reveal">
         <h3>정리</h3>

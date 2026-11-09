@@ -90,12 +90,18 @@ a:hover{color:var(--acc2)}
 }
 #hero-canvas{
   position:absolute;inset:0;width:100%;height:100%;z-index:0;
+  /* Keep 3D out of the title column */
+  clip-path: inset(0 0 0 46%);
+  -webkit-clip-path: inset(0 0 0 46%);
+}
+@media (max-width: 900px){
+  #hero-canvas{ clip-path: none; -webkit-clip-path: none; opacity: 0.55; }
 }
 .hero-veil{
   position:absolute;inset:0;z-index:1;pointer-events:none;
   background:
-    radial-gradient(ellipse 70% 60% at 72% 42%, transparent 0%, rgba(242,244,241,.25) 50%, rgba(242,244,241,.92) 100%),
-    linear-gradient(90deg, rgba(242,244,241,.94) 0%, rgba(242,244,241,.72) 40%, rgba(242,244,241,.28) 68%, rgba(242,244,241,.55) 100%);
+    radial-gradient(ellipse 58% 52% at 82% 40%, transparent 0%, rgba(242,244,241,.15) 40%, rgba(242,244,241,.9) 100%),
+    linear-gradient(90deg, rgba(242,244,241,.99) 0%, rgba(242,244,241,.97) 38%, rgba(242,244,241,.55) 52%, rgba(242,244,241,.12) 72%, rgba(242,244,241,.35) 100%);
 }
 .hero-copy{
   position:relative;z-index:2;max-width:720px;

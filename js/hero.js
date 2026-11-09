@@ -13,8 +13,8 @@ renderer.setClearColor(0xf2f4f1, 0);
 const scene = new THREE.Scene();
 scene.fog = new THREE.Fog(0xf2f4f1, 8, 22);
 const camera = new THREE.PerspectiveCamera(42, 1, 0.1, 100);
-camera.position.set(0.2, 0.55, 5.8);
-const heroTarget = new THREE.Vector3(0.4, 0.45, 0);
+camera.position.set(5.0, 1.15, 7.2);
+const heroTarget = new THREE.Vector3(4.4, 0.55, 0);
 camera.lookAt(heroTarget);
 const heroOrbit = new OrbitControls(camera, canvas);
 heroOrbit.enableDamping = true;
@@ -48,7 +48,10 @@ const accentMat = new THREE.MeshStandardMaterial({
 const body = new THREE.Mesh(new THREE.BoxGeometry(1.05, 0.28, 2.1), bodyMat);
 body.position.y = 0.18;
 ego.add(body);
-const cabin = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.32, 1.1), bodyMat);
+const cabinMat = bodyMat.clone();
+cabinMat.transparent = false;
+cabinMat.opacity = 1;
+const cabin = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.32, 1.1), cabinMat);
 cabin.position.set(0, 0.42, -0.15);
 ego.add(cabin);
 // Headlight strips
@@ -57,8 +60,9 @@ ego.add(cabin);
   l.position.set(x, 0.2, 1.06);
   ego.add(l);
 });
-ego.position.set(-0.6, 0, 0.4);
-scene.add(ego);
+ego.position.set(4.0, 0, 0.15);
+// ego removed from hero — was overlapping title text
+// scene.add(ego);
 
 // ── Ground grid (subtle) ──
 const grid = new THREE.GridHelper(18, 36, 0xa8b0a8, 0xd0d6cf);
@@ -69,6 +73,7 @@ scene.add(grid);
 
 // ── Sparse queries floating as glowing orbs with trails ──
 const queryGroup = new THREE.Group();
+queryGroup.position.set(4.1, 0, 0);
 scene.add(queryGroup);
 
 const N = 28;
@@ -93,7 +98,7 @@ for (let i = 0; i < N; i++) {
   // soft halo
   const halo = new THREE.Mesh(
     new THREE.SphereGeometry(0.14, 12, 12),
-    new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.18 })
+    new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.1 })
   );
   mesh.add(halo);
 
@@ -128,7 +133,7 @@ queryGroup.add(links);
 
 // ── Scene-token lattice (right side, denser, cooler) ──
 const tokenGroup = new THREE.Group();
-tokenGroup.position.set(2.4, 0.55, -0.3);
+tokenGroup.position.set(6.4, 0.65, -0.1);
 scene.add(tokenGroup);
 const tokenMat = new THREE.MeshStandardMaterial({
   color: 0xa78bfa, emissive: 0xa78bfa, emissiveIntensity: 0.45,
@@ -177,7 +182,7 @@ const frustums = new THREE.Group();
   f.position.y = 0.5;
   frustums.add(f);
 });
-scene.add(frustums);
+// scene.add(frustums);
 
 // Floating particles (dust)
 const dustCount = 120;
@@ -224,9 +229,7 @@ function frame(now) {
 
   heroOrbit.update();
 
-  ego.rotation.y = Math.sin(t * 0.25) * 0.08 * motion;
-  frustums.rotation.y = ego.rotation.y;
-  frustums.position.copy(ego.position);
+  // ego/frustums omitted from hero composition
 
   queries.forEach((q, i) => {
     const bob = Math.sin(t * q.speed + q.phase) * q.amp * motion;

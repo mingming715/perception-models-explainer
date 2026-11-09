@@ -108,7 +108,9 @@ function attachOrbit(camera, domElement, targetVec) {
     let dir = camera.position.clone().sub(controls.target);
     if (dir.lengthSq() < 1e-6) dir.set(0.25, 0.55, 1);
     dir.normalize();
-    if (dir.y < 0.22) dir.y = 0.38;
+    if (dir.y < 0.18) dir.y = 0.28;
+    // Avoid bird's-eye that leaves the top half empty
+    if (dir.y > 0.48) dir.y = 0.36;
     dir.normalize();
 
     // Seed distance from AABB + FOV, then refine with AABB corner NDC fit
@@ -159,7 +161,7 @@ function attachOrbit(camera, domElement, targetVec) {
   }
 
   function easeHome(ms = 650) {
-    if (reduceMotion) {
+    if (reduceMotion || ms <= 0) {
       camera.position.copy(homePos);
       controls.target.copy(homeTarget);
       controls.update();
@@ -260,10 +262,10 @@ function initStreamPETR() {
   const root = canvas.closest('.method-scrolly') || canvas.closest('.lab');
   const renderer = makeRenderer(canvas);
   const scene = new THREE.Scene();
-  scene.fog = new THREE.Fog(0xf4f5f2, 14, 32);
+  scene.fog = new THREE.Fog(0xf4f5f2, 16, 36);
   const camera = new THREE.PerspectiveCamera(42, 1, 0.1, 80);
-  camera.position.set(5.5, 5.0, 8.5);
-  const orbit = attachOrbit(camera, canvas, new THREE.Vector3(0, 0.7, 0.4));
+  camera.position.set(6.8, 3.4, 8.2);
+  const orbit = attachOrbit(camera, canvas, new THREE.Vector3(-0.6, 0.55, 0.3));
 
   scene.add(new THREE.AmbientLight(0xffffff, 0.78));
   const key = new THREE.DirectionalLight(0xffffff, 0.95);
@@ -361,7 +363,7 @@ function initStreamPETR() {
   // ── 6 camera frustums (translucent fans) ──
   function makeFrustumFan(yaw, color) {
     const g = new THREE.Group();
-    const near = 0.35, far = 3.4, nw = 0.22, fw = 1.55, nh = 0.14, fh = 0.85;
+    const near = 0.3, far = 2.45, nw = 0.18, fw = 1.15, nh = 0.12, fh = 0.62;
     const corners = [
       new THREE.Vector3(-nw, -nh, near), new THREE.Vector3(nw, -nh, near),
       new THREE.Vector3(nw, nh, near), new THREE.Vector3(-nw, nh, near),
@@ -413,12 +415,14 @@ function initStreamPETR() {
   // Static fit anchors (traffic excluded from fit because it wraps far)
   const fitAnchors = new THREE.Group();
   [
-    [0, 0.6, 0], [3.6, 1.4, 3.6], [-3.6, 1.4, 3.6], [3.6, 1.4, -3.6], [-3.6, 1.4, -3.6],
-    [-6.8, 1.2, 0], [-6.8, 1.2, 2.2], [-6.8, 1.2, -2.2], [0, 2.4, 0],
-    [2.8, 1.6, 0], [-2.8, 1.6, 0],
+    // Intentional framing hull (~ fills card at low angle)
+    [0.2, 0.35, 0.2],
+    [2.4, 0.9, 2.1], [-2.0, 0.9, 2.1], [2.4, 0.9, -1.8], [-2.0, 0.9, -1.8],
+    [-4.6, 0.75, 1.4], [-4.6, 0.75, -1.4], [-4.6, 0.55, 0],
+    [0.2, 1.05, 0.2], [1.6, 0.85, 1.0], [-1.2, 0.85, 1.0],
   ].forEach(([x,y,z]) => {
     const a = new THREE.Mesh(
-      new THREE.BoxGeometry(0.45, 0.45, 0.45),
+      new THREE.BoxGeometry(0.3, 0.3, 0.3),
       new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false })
     );
     a.position.set(x, y, z);
@@ -458,7 +462,7 @@ function initStreamPETR() {
       new THREE.PlaneGeometry(1.5, 0.95),
       new THREE.MeshBasicMaterial({ map: tex, transparent: true, opacity: 0.92, side: THREE.DoubleSide })
     );
-    const f = farPos(yaw, 3.15);
+    const f = farPos(yaw, 2.25);
     plane.position.copy(f);
     plane.position.y = 0.85;
     plane.lookAt(0, 0.85, 0);
@@ -470,26 +474,26 @@ function initStreamPETR() {
   }
 
   // ── Query box attached to a vehicle (wire box + glowing ref point) ──
-  function makeQueryBox(col, size = [0.95, 0.7, 1.7]) {
+  function makeQueryBox(col, size = [1.05, 0.78, 1.85]) {
     const g = new THREE.Group();
     const [w, h, d] = size;
     const edges = new THREE.LineSegments(
       new THREE.EdgesGeometry(new THREE.BoxGeometry(w, h, d)),
-      new THREE.LineBasicMaterial({ color: col, transparent: true, opacity: 0.95 })
+      new THREE.LineBasicMaterial({ color: col, transparent: true, opacity: 1 })
     );
     edges.position.y = h * 0.5;
     g.add(edges);
     const fill = new THREE.Mesh(
       new THREE.BoxGeometry(w, h, d),
-      new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.12, depthWrite: false })
+      new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.16, depthWrite: false })
     );
     fill.position.y = h * 0.5;
     g.add(fill);
     const ref = new THREE.Mesh(
-      new THREE.SphereGeometry(0.07, 12, 12),
+      new THREE.SphereGeometry(0.09, 14, 14),
       new THREE.MeshStandardMaterial({
-        color: col, emissive: col, emissiveIntensity: 1.1,
-        transparent: true, opacity: 0.95
+        color: col, emissive: col, emissiveIntensity: 1.25,
+        transparent: true, opacity: 1
       })
     );
     ref.position.y = h * 0.5;
@@ -516,23 +520,25 @@ function initStreamPETR() {
   // Memory queue: layered along time axis (−X / past), Top-K boxes per layer
   const QUEUE_LAYERS = 4;
   const queueRoot = new THREE.Group();
-  queueRoot.position.set(-3.2, 0.4, 0);
+  queueRoot.position.set(-2.15, 0.4, 0);
   queueRoot.visible = false;
   scene.add(queueRoot);
   const queueLayers = [];
   const qCols = [0x0891b2, 0x0e7490, 0x155e75, 0x164e63];
   for (let L = 0; L < QUEUE_LAYERS; L++) {
     const layer = new THREE.Group();
-    layer.position.x = -L * 1.05;
+    layer.position.x = -L * 0.95;
     const boxes = [];
     for (let k = 0; k < 3; k++) {
-      const b = makeQueryBox(qCols[L], [0.7, 0.5, 1.2]);
-      b.position.set(0, 0, (k - 1) * 1.5);
-      b.scale.setScalar(1 - L * 0.06);
-      const op = 0.95 - L * 0.18;
+      const b = makeQueryBox(qCols[L], [0.95, 0.65, 1.45]);
+      b.position.set(0, 0, (k - 1) * 1.35);
+      b.scale.setScalar(1 - L * 0.04);
+      const op = 1 - L * 0.14;
       b.userData.edges.material.opacity = op;
-      b.userData.fill.material.opacity = 0.08;
+      b.userData.edges.material.linewidth = 2;
+      b.userData.fill.material.opacity = 0.14;
       b.userData.ref.material.opacity = op;
+      b.userData.ref.material.emissiveIntensity = 1.25 - L * 0.15;
       layer.add(b);
       boxes.push(b);
     }
@@ -549,7 +555,7 @@ function initStreamPETR() {
   // time axis line
   const axis = new THREE.Line(
     new THREE.BufferGeometry().setFromPoints([
-      new THREE.Vector3(0.5, 0.15, 0), new THREE.Vector3(-QUEUE_LAYERS * 1.05 - 0.3, 0.15, 0)
+      new THREE.Vector3(0.5, 0.15, 0), new THREE.Vector3(-QUEUE_LAYERS * 0.95 - 0.3, 0.15, 0)
     ]),
     new THREE.LineBasicMaterial({ color: 0x64748b, transparent: true, opacity: 0.55 })
   );
@@ -593,12 +599,12 @@ function initStreamPETR() {
           if ((ci + ki + li) % 2 !== 0 && li > 1) return; // sparse
           const weight = Math.max(0.15, 1 - li * 0.22 - Math.abs(ki - 1) * 0.1);
           const mat = new THREE.LineDashedMaterial({
-            color: weight > 0.55 ? 0x0891b2 : 0x7c3aed,
+            color: weight > 0.55 ? 0x0e7490 : 0x6d28d9,
             transparent: true,
-            opacity: 0.25 + weight * 0.55,
-            dashSize: 0.18,
-            gapSize: 0.12,
-            linewidth: 1,
+            opacity: 0.5 + weight * 0.45,
+            dashSize: 0.28,
+            gapSize: 0.1,
+            linewidth: 2,
           });
           const geo = new THREE.BufferGeometry().setFromPoints([
             new THREE.Vector3(), new THREE.Vector3()
@@ -621,7 +627,7 @@ function initStreamPETR() {
   currQueries.forEach((cq, ci) => {
     const plane = imgPlanes[ci % imgPlanes.length];
     const mat = new THREE.LineBasicMaterial({
-      color: 0x059669, transparent: true, opacity: 0.65
+      color: 0x047857, transparent: true, opacity: 0.85
     });
     const geo = new THREE.BufferGeometry().setFromPoints([
       new THREE.Vector3(), new THREE.Vector3()
@@ -675,7 +681,7 @@ function initStreamPETR() {
     // reset queue layer opacities / positions
     queueLayers.forEach((layer, L) => {
       layer.group.visible = true;
-      layer.group.position.x = -L * 1.05;
+      layer.group.position.x = -L * 0.95;
       layer.group.position.y = 0;
       const op = 0.95 - L * 0.18;
       layer.boxes.forEach((b) => {
@@ -717,18 +723,25 @@ function initStreamPETR() {
   io.observe(canvas);
   fit(renderer, camera, canvas);
   // initial visibility for fit bounds
-  currGroup.visible = true;
-  queueRoot.visible = true;
-  imgGroup.visible = true;
-  orbit.fitContent(scene, 1.22);
-  currGroup.visible = false;
-  queueRoot.visible = false;
-  imgGroup.visible = false;
+  /** Steeper look-down so objects rise in frame (less empty sky). */
+  function frameStreet() {
+    const tgt = new THREE.Vector3(-0.75, 0.45, 0.2);
+    const pos = new THREE.Vector3(3.55, 3.15, 3.85);
+    camera.position.copy(pos);
+    orbit.controls.target.copy(tgt);
+    camera.near = 0.08;
+    camera.far = 45;
+    camera.updateProjectionMatrix();
+    orbit.controls.update();
+    orbit.setHomeFromCamera();
+  }
+
+  frameStreet();
   applyPhase(0);
 
   window.addEventListener('resize', () => {
     fit(renderer, camera, canvas);
-    orbit.fitContent(scene, 1.22);
+    frameStreet();
   });
 
   const _tmp = new THREE.Vector3();
@@ -830,14 +843,14 @@ function initStreamPETR() {
       queueLayers[0].boxes.forEach((b) => b.scale.setScalar(0.85 + 0.2 * u));
       // oldest exits left + fade
       const last = queueLayers[QUEUE_LAYERS - 1];
-      last.group.position.x = -((QUEUE_LAYERS - 1) * 1.05) - u * 1.8;
+      last.group.position.x = -((QUEUE_LAYERS - 1) * 0.95) - u * 1.6;
       last.boxes.forEach((b) => {
         b.userData.edges.material.opacity = 0.95 - 0.18 * (QUEUE_LAYERS - 1) - u * 0.7;
         b.userData.ref.material.opacity = b.userData.edges.material.opacity;
       });
       // shift middle layers slightly toward front
       for (let L = 1; L < QUEUE_LAYERS - 1; L++) {
-        queueLayers[L].group.position.x = -L * 1.05 + u * 0.3;
+        queueLayers[L].group.position.x = -L * 0.95 + u * 0.28;
       }
     }
 

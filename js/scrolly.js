@@ -20,7 +20,7 @@ export function initProgress() {
     const focusY = window.scrollY + FOCUS();
     let activePaper = null;
     for (const p of papers) {
-      const top = p.offsetTop;
+      const top = p.getBoundingClientRect().top + window.scrollY;
       const bottom = top + p.offsetHeight;
       if (focusY >= top && focusY < bottom) activePaper = p;
     }
@@ -37,8 +37,9 @@ export function initProgress() {
 
     let current = secs[0]?.id || null;
     for (const s of secs) {
-      // section considered active once its top passes above the focus line
-      if (s.el.offsetTop <= focusY + 8) current = s.id;
+      // use document Y (offsetTop is relative to offsetParent and breaks nesting)
+      const top = s.el.getBoundingClientRect().top + window.scrollY;
+      if (top <= focusY + 8) current = s.id;
     }
     links.forEach(l => l.classList.toggle('on', l.dataset.sec === current));
   }

@@ -335,8 +335,48 @@ function zoomEnvelope(progress, a = 0.12, b = 0.38, c = 0.62, d = 0.88) {
   return 0;
 }
 
+/** Clean in-scene text sprite (always faces camera). */
+function makeTextLabel(text, opts = {}) {
+  const color = opts.color || '#0f172a';
+  const w = opts.w || 320;
+  const h = opts.h || 72;
+  const c = document.createElement('canvas');
+  c.width = w; c.height = h;
+  const ctx = c.getContext('2d');
+  ctx.clearRect(0, 0, w, h);
+  // soft pill background for readability on light/dark meshes
+  const pad = 10;
+  ctx.fillStyle = 'rgba(255,255,255,0.92)';
+  ctx.strokeStyle = 'rgba(15,23,42,0.12)';
+  ctx.lineWidth = 2;
+  const rw = w - pad * 2, rh = h - pad * 2, r = 14;
+  ctx.beginPath();
+  ctx.moveTo(pad + r, pad);
+  ctx.arcTo(pad + rw, pad, pad + rw, pad + rh, r);
+  ctx.arcTo(pad + rw, pad + rh, pad, pad + rh, r);
+  ctx.arcTo(pad, pad + rh, pad, pad, r);
+  ctx.arcTo(pad, pad, pad + rw, pad, r);
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
+  ctx.fillStyle = color;
+  ctx.font = `650 ${opts.size || 28}px "Pretendard","Noto Sans KR",system-ui,sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(text, w / 2, h / 2 + 1);
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false, depthWrite: false });
+  const s = new THREE.Sprite(mat);
+  const scale = opts.scale || 1.35;
+  s.scale.set(scale, scale * (h / w), 1);
+  s.userData.isLabel = true;
+  return s;
+}
+
 /**
  * Scrubbable zoom between orbit home and a detail pose.
+ * Optionally dims non-focus object groups (opacity → ~0.15).
  * reduced-motion: snap to detail when u>0.5 else home.
  */
 function makeZoomRig(camera, orbit) {
@@ -346,24 +386,60 @@ function makeZoomRig(camera, orbit) {
   const detailTarget = new THREE.Vector3();
   let hasDetail = false;
   let lastU = 0;
+  let dimEntries = []; // { mat, base }
+  let dimGroupsRef = [];
 
   function captureHome() {
     homePos.copy(camera.position);
     homeTarget.copy(orbit.controls.target);
   }
-  function setDetail(pos, target) {
+  function setDetail(pos, target, dimGroups = []) {
     detailPos.set(pos[0], pos[1], pos[2]);
     detailTarget.set(target[0], target[1], target[2]);
     hasDetail = true;
+    dimGroupsRef = (dimGroups || []).filter(Boolean);
+    // restore any previous hide
+    dimGroupsRef.forEach((g) => { g.visible = true; });
+    dimEntries = [];
+    dimGroupsRef.forEach((g) => {
+      g.traverse((o) => {
+        if (o.userData?.isLabel) return;
+        const mats = o.material ? (Array.isArray(o.material) ? o.material : [o.material]) : [];
+        mats.forEach((m) => {
+          if (!m || m.opacity === undefined) return;
+          if (!m.transparent) m.transparent = true;
+          if (m.userData._zoomBaseOpacity == null) m.userData._zoomBaseOpacity = m.opacity;
+          dimEntries.push({ mat: m, base: m.userData._zoomBaseOpacity });
+        });
+      });
+    });
   }
-  function clearDetail() { hasDetail = false; lastU = 0; }
+  function clearDetail() {
+    hasDetail = false;
+    lastU = 0;
+    dimEntries.forEach(({ mat, base }) => { mat.opacity = base; });
+    dimGroupsRef.forEach((g) => { g.visible = true; });
+    dimEntries = [];
+    dimGroupsRef = [];
+  }
   function scrub(u) {
-    if (!hasDetail) return;
+    if (!hasDetail) {
+      dimEntries.forEach(({ mat, base }) => { mat.opacity = base; });
+      dimGroupsRef.forEach((g) => { g.visible = true; });
+      return;
+    }
     const t = reduceMotion ? (u > 0.5 ? 1 : 0) : easeInOut(u);
     lastU = t;
     camera.position.lerpVectors(homePos, detailPos, t);
     orbit.controls.target.lerpVectors(homeTarget, detailTarget, t);
     orbit.controls.update();
+    // Fade quickly, then hide clutter so focus is readable (~15% margin framing)
+    const fade = Math.max(0, 1 - t * 1.15); // ~0 at t≈0.87
+    dimEntries.forEach(({ mat, base }) => {
+      mat.opacity = base * Math.max(0.05, fade);
+    });
+    const show = t < 0.55;
+    dimGroupsRef.forEach((g) => { g.visible = show; });
   }
   return { captureHome, setDetail, clearDetail, scrub, get u() { return lastU; } };
 }
@@ -677,13 +753,13 @@ function initStreamPETR() {
   yaws.slice(0, 6).forEach((yaw, i) => {
     const tex = makePlaceholderTex(190 + i * 18);
     const plane = new THREE.Mesh(
-      new THREE.PlaneGeometry(1.5, 0.95),
-      new THREE.MeshBasicMaterial({ map: tex, transparent: true, opacity: 0.92, side: THREE.DoubleSide })
+      new THREE.PlaneGeometry(0.72, 0.46),
+      new THREE.MeshBasicMaterial({ map: tex, transparent: true, opacity: 0.4, side: THREE.DoubleSide })
     );
-    const f = farPos(yaw, 2.25);
+    const f = farPos(yaw, 2.55);
     plane.position.copy(f);
-    plane.position.y = 0.85;
-    plane.lookAt(0, 0.85, 0);
+    plane.position.y = 1.15;
+    plane.lookAt(0, 1.0, 0);
     imgGroup.add(plane);
     imgPlanes.push(plane);
   });
@@ -872,12 +948,18 @@ function initStreamPETR() {
     a.arrow = arrow;
   });
 
+  const clutterSP = [ego, frustumGroup, ...traffic.map((tr) => tr.car)];
+  function dimGroupsSP(st) {
+    if (!st?.zoom?.dim) return [];
+    if (st.zoom.dim === 'cross') return [...clutterSP, queueRoot, alignedGroup];
+    return clutterSP;
+  }
   const steps = [
     { title: '1. 현재 프레임 쿼리', body: '주변 차량에 붙은 3D query box(분홍)와 기준점이 현재 프레임에서 나타납니다. 아직 메모리와 섞이지 않습니다.', phase: 0 },
-    { title: '2. FIFO Memory Queue', body: '과거 Top-K foreground query가 시간축을 따라 층층이 쌓입니다. 오래된 레이어일수록 흐려집니다.', phase: 1, zoom: { pos: [1.2, 2.2, 3.0], target: [-2.2, 0.7, 0] } },
+    { title: '2. FIFO Memory Queue', body: '과거 Top-K foreground query가 시간축을 따라 층층이 쌓입니다. 오래된 레이어일수록 흐려집니다.', phase: 1, zoom: { pos: [2.8, 2.8, 4.2], target: [-2.0, 0.75, 0], dim: 'clutter' } },
     { title: '3. Ego Transform + MLN', body: '자차가 전진하며 과거 박스가 현재 좌표로 미끄러져 옵니다. 주황 화살표는 v·Δt 보정(MLN)을 나타냅니다.', phase: 2 },
-    { title: '4. Hybrid Attention', body: '현재 쿼리(Q)와 메모리 큐(K/V) 사이 점선이 흐릅니다. 굵고 밝은 선일수록 attention weight가 큽니다.', phase: 3, zoom: { pos: [2.4, 2.0, 3.2], target: [-1.2, 0.7, 0.2] } },
-    { title: '5. 이미지 Cross-Attn', body: '쿼리에서 현재 카메라 frustum·이미지 평면으로 광선이 닿습니다. 과거 이미지는 다시 보지 않습니다.', phase: 4, zoom: { pos: [3.2, 2.1, 2.4], target: [1.2, 0.9, 1.0] } },
+    { title: '4. Hybrid Attention', body: '현재 쿼리(Q)와 메모리 큐(K/V) 사이 점선이 흐릅니다. 굵고 밝은 선일수록 attention weight가 큽니다.', phase: 3, zoom: { pos: [3.6, 2.6, 4.4], target: [-1.0, 0.75, 0.2], dim: 'clutter' } },
+    { title: '5. 이미지 Cross-Attn', body: '쿼리에서 현재 카메라 frustum·이미지 평면으로 광선이 닿습니다. 과거 이미지는 다시 보지 않습니다.', phase: 4, zoom: { pos: [5.2, 4.0, 4.8], target: [0.4, 1.0, 0.6], dim: 'cross' } },
     { title: '6. Top-K → 큐 갱신', body: '점수가 높은 박스가 큐 맨 앞으로 올라가고, 가장 오래된 레이어는 빠져나갑니다.', phase: 5 },
   ];
 
@@ -930,7 +1012,7 @@ function initStreamPETR() {
     const cap = root?.querySelector?.('[data-role="sticky-caption"]');
     const stepMeta = steps.find((s) => s.phase === p) || steps[p];
     if (cap && stepMeta) cap.textContent = stepMeta.title.replace(/^\d+\.\s*/, '');
-    if (stepMeta?.zoom) zoom.setDetail(stepMeta.zoom.pos, stepMeta.zoom.target);
+    if (stepMeta?.zoom) zoom.setDetail(stepMeta.zoom.pos, stepMeta.zoom.target, dimGroupsSP(stepMeta));
     orbit.controls.update();
     renderer.render(scene, camera);
   }
@@ -940,6 +1022,7 @@ function initStreamPETR() {
   __labZoom['streampetr'] = (step, progress) => {
     const st = steps[step];
     if (!st?.zoom) { zoom.scrub(0); return; }
+    if (st.zoom.dim) zoom.setDetail(st.zoom.pos, st.zoom.target, dimGroupsSP(st));
     zoom.scrub(zoomEnvelope(progress));
   };
 
@@ -1123,6 +1206,7 @@ function initS4Dv1() {
   // Past T image-feature stacks (ghost poses along -Z)
   const T = 4;
   const pastStacks = [];
+  const pastGhosts = [];
   for (let ti = 0; ti < T; ti++) {
     const g = new THREE.Group();
     g.position.set(-0.3, 0, -2.2 - ti * 2.0);
@@ -1135,15 +1219,16 @@ function initS4Dv1() {
       }
     });
     g.add(ghost);
+    pastGhosts.push(ghost);
     for (let c = 0; c < 3; c++) {
       const p = new THREE.Mesh(
-        new THREE.PlaneGeometry(0.95, 0.6),
+        new THREE.PlaneGeometry(0.62, 0.4),
         new THREE.MeshBasicMaterial({
           map: makePlaceholderTex(200 - ti * 15),
-          transparent: true, opacity: 0.55 + ti * 0.08, side: THREE.DoubleSide
+          transparent: true, opacity: 0.38 + ti * 0.06, side: THREE.DoubleSide
         })
       );
-      p.position.set(1.6, 0.9 + c * 0.55, 0);
+      p.position.set(1.6, 1.05 + c * 0.42, 0);
       p.rotation.y = -0.5;
       g.add(p);
     }
@@ -1164,6 +1249,9 @@ function initS4Dv1() {
   scene.add(anchor);
   const kpGroup = new THREE.Group();
   scene.add(kpGroup);
+  const kpLabel = makeTextLabel('keypoints', { color: '#be185d', scale: 1.2 });
+  kpLabel.position.set(1.6, 1.25, 1.4);
+  kpGroup.add(kpLabel);
   const kps = [];
   for (let i = 0; i < 10; i++) {
     const s = glowSphere(0.07, 0xdb2777);
@@ -1182,10 +1270,11 @@ function initS4Dv1() {
   scene.add(rayGroup);
   const rayLines = [];
   kps.forEach((kp, ki) => {
+    if (ki % 2) return; // thin readable rays — every other keypoint
     pastStacks.forEach((stack, ti) => {
-      if (ti === T - 1 && ki > 4) return;
+      if (ti > 1) return; // only nearest two past stacks
       const mat = new THREE.LineDashedMaterial({
-        color: 0xdb2777, transparent: true, opacity: 0.55,
+        color: 0xdb2777, transparent: true, opacity: 0.45,
         dashSize: 0.2, gapSize: 0.1
       });
       const geo = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3()]);
@@ -1200,12 +1289,21 @@ function initS4Dv1() {
   const sampleGroup = new THREE.Group();
   scene.add(sampleGroup);
 
+  const clutterV1 = [ego, frustumGroup, ...traffic.map((tr) => tr.car)];
+  const focusV1 = [anchor, kpGroup, rayGroup, sampleGroup, ...pastStacks];
+  function dimGroupsV1(st) {
+    if (!st?.zoom?.dim) return [];
+    // Keypoints: hide stacks for readable KP; projection/sampling keep planes, hide ghosts
+    if (st.phase === 2) return [...clutterV1, ...pastStacks];
+    if (st.phase === 3 || st.phase === 4) return [...clutterV1, ...pastGhosts];
+    return clutterV1;
+  }
   const steps = [
     { title: '1. 이미지 feature 큐', body: 'T개 시점의 멀티뷰 feature가 큐에 쌓입니다. Instance가 아니라 이미지를 기억합니다.', phase: 0 },
     { title: '2. 3D 앵커', body: '후보 instance는 3D anchor box로 표현됩니다.', phase: 1 },
-    { title: '3. 4D Keypoints', body: '앵커 안에서 고정·학습 keypoints가 생깁니다. 시공간 샘플링의 발판입니다.', phase: 2, zoom: { pos: [2.8, 1.6, 3.2], target: [1.6, 0.55, 1.4] } },
-    { title: '4. 과거 프레임에 투영', body: 'keypoints를 각 과거 timestamp·카메라 평면에 투영합니다.', phase: 3 },
-    { title: '5. Deformable sampling', body: '투영 위치 주변 multi-scale feature를 deformable sampling합니다.', phase: 4, zoom: { pos: [0.2, 2.0, -1.5], target: [-0.3, 1.1, -4.0] } },
+    { title: '3. 4D Keypoints', body: '앵커 안에서 고정·학습 keypoints가 생깁니다. 시공간 샘플링의 발판입니다.', phase: 2, zoom: { pos: [4.9, 3.3, 5.5], target: [1.55, 0.75, 1.35], dim: 'clutter' } },
+    { title: '4. 과거 프레임에 투영', body: 'keypoints를 각 과거 timestamp·카메라 평면에 투영합니다.', phase: 3, zoom: { pos: [6.0, 4.0, 5.4], target: [1.0, 1.1, -1.4], dim: 'clutter' } },
+    { title: '5. Deformable sampling', body: '투영 위치 주변 multi-scale feature를 deformable sampling합니다.', phase: 4, zoom: { pos: [6.8, 5.0, 5.2], target: [0.6, 1.3, -2.2], dim: 'clutter' } },
     { title: '6. 앵커 정제', body: '모은 feature로 앵커를 정제합니다. Instance는 넘기지 않고 feature 큐만 갱신합니다.', phase: 5 },
   ];
 
@@ -1224,22 +1322,28 @@ function initS4Dv1() {
     });
     anchor.visible = p >= 1;
     kpGroup.visible = p >= 2;
-    rayGroup.visible = p >= 3;
+    rayGroup.visible = p >= 2; // thin projection rays readable with keypoints zoom
     sampleGroup.visible = p >= 4;
     const st = steps.find((s) => s.phase === p);
     zoom.clearDetail();
     setStreetHome(camera, orbit, zoom, home);
-    if (st?.zoom) zoom.setDetail(st.zoom.pos, st.zoom.target);
+    if (st?.zoom) zoom.setDetail(st.zoom.pos, st.zoom.target, dimGroupsV1(st));
     const cap = root?.querySelector?.('[data-role="sticky-caption"]');
     if (cap && st) cap.textContent = st.title.replace(/^\d+\.\s*/, '');
     renderer.render(scene, camera);
   }
 
-  bindLabUI(root, steps, (i) => { applyPhase(steps[i].phase); orbit.easeHome(0); zoom.captureHome(); if (steps[i].zoom) zoom.setDetail(steps[i].zoom.pos, steps[i].zoom.target); }, 's4dv1');
+  bindLabUI(root, steps, (i) => {
+    applyPhase(steps[i].phase);
+    orbit.easeHome(0);
+    zoom.captureHome();
+    if (steps[i].zoom) zoom.setDetail(steps[i].zoom.pos, steps[i].zoom.target, dimGroupsV1(steps[i]));
+  }, 's4dv1');
   __labDebug['s4dv1'] = { scene, camera, canvas, orbit, renderer };
   __labZoom['s4dv1'] = (step, progress) => {
     const st = steps[step];
     if (!st?.zoom) { zoom.scrub(0); return; }
+    if (st.zoom.dim) zoom.setDetail(st.zoom.pos, st.zoom.target, dimGroupsV1(st));
     zoom.scrub(zoomEnvelope(progress));
   };
 
@@ -1336,13 +1440,16 @@ function initS4Dv2() {
   for (let i = 0; i < 5; i++) {
     const yaw = -1.0 + i * 0.5;
     const plane = new THREE.Mesh(
-      new THREE.PlaneGeometry(1.2, 0.75),
-      new THREE.MeshBasicMaterial({ map: makePlaceholderTex(160 + i * 12), transparent: true, opacity: 0.9, side: THREE.DoubleSide })
+      new THREE.PlaneGeometry(0.42, 0.28),
+      new THREE.MeshBasicMaterial({ map: makePlaceholderTex(160 + i * 12), transparent: true, opacity: 0.32, side: THREE.DoubleSide })
     );
-    plane.position.set(Math.sin(yaw) * 2.3, 0.95, Math.cos(yaw) * 2.3);
-    plane.lookAt(0, 0.95, 0);
+    plane.position.set(Math.sin(yaw) * 3.0, 1.55, Math.cos(yaw) * 3.0);
+    plane.lookAt(0, 1.2, 0);
     imgGroup.add(plane);
   }
+  const sampleLabel = makeTextLabel('current image sample', { color: '#047857', scale: 1.15 });
+  sampleLabel.position.set(1.4, 2.05, 1.5);
+  imgGroup.add(sampleLabel);
 
   // Newborn single-frame layer
   const newborn = makeQueryBox(0xdb2777, [0.9, 0.65, 1.5]);
@@ -1361,10 +1468,11 @@ function initS4Dv2() {
     sLines.push({ line, b, plane });
   });
 
+  const clutterV2 = [ego, frustumGroup, pastGroup];
   const steps = [
     { title: '1. 이전 instance', body: 't−1의 anchor와 instance feature가 상태로 남습니다. 과거 이미지 큐는 없습니다.', phase: 0 },
     { title: '2. Ego + v·Δt 투영', body: '앵커를 ego motion과 속도 v·Δt로 현재 시각 좌표계로 투영합니다.', phase: 1 },
-    { title: '3. 현재 이미지만 샘플', body: '투영된 앵커에서 현재 프레임 이미지 feature만 deformable sampling합니다.', phase: 2, zoom: { pos: [2.8, 2.0, 3.5], target: [1.2, 0.8, 1.0] } },
+    { title: '3. 현재 이미지만 샘플', body: '투영된 앵커에서 현재 프레임 이미지 feature만 deformable sampling합니다.', phase: 2, zoom: { pos: [5.4, 5.0, 4.6], target: [0.6, 0.9, 1.0], dim: 'clutter' } },
     { title: '4. Recurrent 갱신', body: 'Fₜ = decode(Fₜ₋₁, 현재 샘플). instance feature가 재귀적으로 이어집니다.', phase: 3 },
     { title: '5. Single-frame 경로', body: '새 객체는 single-frame layer에서 초기화되고, 전파 객체는 multi-frame layer가 담당합니다.', phase: 4 },
     { title: '6. 부가 모듈', body: 'EDA·camera encoding·dense depth supervision이 학습을 보강합니다.', phase: 5 },
@@ -1382,17 +1490,19 @@ function initS4Dv2() {
     zoom.clearDetail();
     setStreetHome(camera, orbit, zoom, home);
     const st = steps.find((s) => s.phase === p);
-    if (st?.zoom) zoom.setDetail(st.zoom.pos, st.zoom.target);
+    if (st?.zoom) zoom.setDetail(st.zoom.pos, st.zoom.target, st.zoom.dim ? clutterV2 : []);
     const cap = root?.querySelector?.('[data-role="sticky-caption"]');
     if (cap && st) cap.textContent = st.title.replace(/^\d+\.\s*/, '');
     renderer.render(scene, camera);
   }
 
-  bindLabUI(root, steps, (i) => { applyPhase(steps[i].phase); orbit.easeHome(0); zoom.captureHome(); if (steps[i].zoom) zoom.setDetail(steps[i].zoom.pos, steps[i].zoom.target); }, 's4dv2');
+  bindLabUI(root, steps, (i) => { applyPhase(steps[i].phase); orbit.easeHome(0); zoom.captureHome(); if (steps[i].zoom) zoom.setDetail(steps[i].zoom.pos, steps[i].zoom.target, steps[i].zoom.dim ? clutterV2 : []); }, 's4dv2');
   __labDebug['s4dv2'] = { scene, camera, canvas, orbit, renderer };
   __labZoom['s4dv2'] = (step, progress) => {
     const st = steps[step];
     if (!st?.zoom) { zoom.scrub(0); return; }
+    // Dim ego/frustums/past — keep current anchors + smaller image planes readable
+    if (st.zoom.dim) zoom.setDetail(st.zoom.pos, st.zoom.target, clutterV2);
     zoom.scrub(zoomEnvelope(progress));
   };
 
@@ -1480,6 +1590,9 @@ function initS4Dv3() {
   );
   badge.position.set(0, 2.1, -1.1);
   trainGroup.add(badge);
+  const trainLab = makeTextLabel('TRAIN-ONLY', { color: '#b45309', scale: 1.35 });
+  trainLab.position.set(0, 2.45, -1.1);
+  trainGroup.add(trainLab);
 
   // Quality estimation badges
   const qeGroup = new THREE.Group();
@@ -1492,37 +1605,46 @@ function initS4Dv3() {
     qeGroup.add(yaw);
   });
 
-  // Decoupled attention: two bars (feature | anchor emb) then concat
+  // Decoupled attention: two bars (feature | anchor emb) inside concat frame + labels
   const decGroup = new THREE.Group();
-  decGroup.position.set(0, 1.6, 2.2);
+  decGroup.position.set(0, 1.55, 2.15);
   scene.add(decGroup);
   const featBar = new THREE.Mesh(
-    new THREE.BoxGeometry(0.35, 1.1, 0.35),
+    new THREE.BoxGeometry(0.28, 0.85, 0.28),
     new THREE.MeshStandardMaterial({ color: 0x0891b2, emissive: 0x0891b2, emissiveIntensity: 0.55 })
   );
-  featBar.position.x = -0.35;
+  featBar.position.set(-0.28, 0, 0);
   const embBar = new THREE.Mesh(
-    new THREE.BoxGeometry(0.35, 1.1, 0.35),
+    new THREE.BoxGeometry(0.28, 0.85, 0.28),
     new THREE.MeshStandardMaterial({ color: 0x7c3aed, emissive: 0x7c3aed, emissiveIntensity: 0.55 })
   );
-  embBar.position.x = 0.35;
-  const concat = wireBox(1.1, 1.3, 0.5, 0x0f172a, 0.7);
+  embBar.position.set(0.28, 0, 0);
+  const concat = wireBox(1.35, 1.15, 0.55, 0x334155, 0.85);
   concat.position.set(0, 0, 0);
   decGroup.add(featBar, embBar, concat);
-  // plus vs concat hint line
-  const plus = new THREE.Mesh(
-    new THREE.BoxGeometry(0.5, 0.06, 0.06),
-    new THREE.MeshBasicMaterial({ color: 0x94a3b8 })
-  );
-  plus.position.set(0, -0.85, 0);
-  decGroup.add(plus);
+  const labFeat = makeTextLabel('feature', { color: '#0e7490', scale: 1.1 });
+  labFeat.position.set(-0.28, 0.72, 0.2);
+  const labEmb = makeTextLabel('anchor emb', { color: '#6d28d9', scale: 1.1 });
+  labEmb.position.set(0.28, 0.72, 0.2);
+  const labCat = makeTextLabel('concat', { color: '#0f172a', scale: 1.15 });
+  labCat.position.set(0, -0.78, 0.15);
+  decGroup.add(labFeat, labEmb, labCat);
 
+  const clutterV3 = [ego, frustumGroup];
+  function dimGroupsV3(st) {
+    if (!st?.zoom?.dim) return [];
+    // DN: keep trainGroup; QE: keep infer+qe; Decoupled: keep decGroup only
+    if (st.phase === 1) return [...clutterV3, infer, qeGroup];
+    if (st.phase === 3) return [...clutterV3, trainGroup];
+    if (st.phase === 4) return [...clutterV3, infer, trainGroup, qeGroup];
+    return [...clutterV3];
+  }
   const steps = [
     { title: '1. v2와 같은 추론', body: '배포·추론 그래프는 Sparse4D v2 recurrent pipeline을 그대로 씁니다.', phase: 0 },
-    { title: '2. Temporal Instance Denoising', body: '학습 때 GT에 noise를 주고 복원합니다. 추론 그래프에는 없습니다 (TRAIN-ONLY).', phase: 1, zoom: { pos: [2.2, 2.4, 1.2], target: [0, 0.9, -1.1] } },
+    { title: '2. Temporal Instance Denoising', body: '학습 때 GT에 noise를 주고 복원합니다. 추론 그래프에는 없습니다 (TRAIN-ONLY).', phase: 1, zoom: { pos: [4.4, 3.2, 3.8], target: [0, 0.95, -1.1], dim: 'clutter' } },
     { title: '3. 노이즈 → GT 복원', body: 'noisy instance가 초록 GT에 가깝게 돌아가며 temporal association을 강화합니다.', phase: 2 },
-    { title: '4. Quality Estimation', body: 'centerness·yawness 헤드가 로컬화 품질을 예측합니다.', phase: 3, zoom: { pos: [2.5, 2.2, 2.8], target: [0, 1.0, 0.8] } },
-    { title: '5. Decoupled Attention', body: 'instance feature와 anchor embedding을 더하지 않고 concat한 뒤 attention합니다.', phase: 4, zoom: { pos: [1.6, 2.3, 4.0], target: [0, 1.6, 2.2] } },
+    { title: '4. Quality Estimation', body: 'centerness·yawness 헤드가 로컬화 품질을 예측합니다.', phase: 3, zoom: { pos: [4.4, 3.0, 4.4], target: [0, 1.0, 0.75], dim: 'clutter' } },
+    { title: '5. Decoupled Attention', body: 'instance feature와 anchor embedding을 더하지 않고 concat한 뒤 attention합니다.', phase: 4, zoom: { pos: [3.4, 3.1, 6.8], target: [0, 1.55, 2.15], dim: 'clutter' } },
     { title: '6. 정리', body: '온디바이스 추론 = v2 + (QE 헤드·concat 차원). Denoising은 학습 전용입니다.', phase: 5 },
   ];
 
@@ -1537,17 +1659,27 @@ function initS4Dv3() {
     zoom.clearDetail();
     setStreetHome(camera, orbit, zoom, home);
     const st = steps.find((s) => s.phase === p);
-    if (st?.zoom) zoom.setDetail(st.zoom.pos, st.zoom.target);
+    // Per-zoom focus: never dim the subject of that step
+    const dimV3 = dimGroupsV3(st);
+    if (st?.zoom) zoom.setDetail(st.zoom.pos, st.zoom.target, dimV3);
     const cap = root?.querySelector?.('[data-role="sticky-caption"]');
     if (cap && st) cap.textContent = st.title.replace(/^\d+\.\s*/, '');
     renderer.render(scene, camera);
   }
 
-  bindLabUI(root, steps, (i) => { applyPhase(steps[i].phase); orbit.easeHome(0); zoom.captureHome(); if (steps[i].zoom) zoom.setDetail(steps[i].zoom.pos, steps[i].zoom.target); }, 's4dv3');
+  bindLabUI(root, steps, (i) => {
+    applyPhase(steps[i].phase);
+    orbit.easeHome(0);
+    zoom.captureHome();
+    if (steps[i].zoom) {
+      zoom.setDetail(steps[i].zoom.pos, steps[i].zoom.target, dimGroupsV3(steps[i]));
+    }
+  }, 's4dv3');
   __labDebug['s4dv3'] = { scene, camera, canvas, orbit, renderer };
   __labZoom['s4dv3'] = (step, progress) => {
     const st = steps[step];
     if (!st?.zoom) { zoom.scrub(0); return; }
+    zoom.setDetail(st.zoom.pos, st.zoom.target, dimGroupsV3(st));
     zoom.scrub(zoomEnvelope(progress));
   };
 
@@ -1650,14 +1782,17 @@ function initF4D() {
   heads.position.set(0, 2.7, 0);
   scene.add(heads);
   const headCols = [0x0891b2, 0x047857, 0xb45309, 0xdb2777];
-  const headNames = ['Geom', 'Det', 'Occ', 'Gauss'];
+  const headNames = ['Geometry', 'Detection', 'Occupancy', 'Gaussian'];
   headCols.forEach((c, i) => {
     const p = new THREE.Mesh(
-      new THREE.PlaneGeometry(1.15, 0.5),
-      new THREE.MeshStandardMaterial({ color: c, emissive: c, emissiveIntensity: 0.4, side: THREE.DoubleSide, transparent: true, opacity: 0.8 })
+      new THREE.PlaneGeometry(1.25, 0.55),
+      new THREE.MeshStandardMaterial({ color: c, emissive: c, emissiveIntensity: 0.4, side: THREE.DoubleSide, transparent: true, opacity: 0.82 })
     );
-    p.position.set((i - 1.5) * 1.35, 0, 0);
+    p.position.set((i - 1.5) * 1.55, 0, 0);
     heads.add(p);
+    const lab = makeTextLabel(headNames[i], { color: '#0f172a', scale: 1.05, size: 24, w: 340, h: 64 });
+    lab.position.set((i - 1.5) * 1.55, 0.52, 0.05);
+    heads.add(lab);
   });
 
   // Detection boxes from scene tokens
@@ -1669,11 +1804,12 @@ function initF4D() {
     detGroup.add(b);
   });
 
+  const clutterF4d = [ego, frustumGroup, detGroup];
   const steps = [
     { title: '1. 멀티 카메라 입력', body: 'C대 카메라 × T 시점 영상이 들어옵니다. 비동기 입력도 표현할 수 있습니다.', phase: 0 },
-    { title: '2. Factorized attention', body: '이미지 내부 이후 view/time attention을 번갈아 적용합니다.', phase: 1, zoom: { pos: [3.2, 2.8, 3.5], target: [0, 1.1, 0] } },
-    { title: '3. Scene tokens', body: '장면 전체를 표현하는 scene token 격자가 형성됩니다.', phase: 2, zoom: { pos: [2.4, 2.6, 2.8], target: [0, 1.2, 0] } },
-    { title: '4. 멀티 헤드 디코더', body: '공유 토큰에서 Geometry · Detection · Occupancy · Gaussian 헤드가 갈라집니다.', phase: 3 },
+    { title: '2. Factorized attention', body: '이미지 내부 이후 view/time attention을 번갈아 적용합니다.', phase: 1, zoom: { pos: [4.4, 3.2, 4.6], target: [0, 1.15, 0], dim: 'clutter' } },
+    { title: '3. Scene tokens', body: '장면 전체를 표현하는 scene token 격자가 형성됩니다.', phase: 2, zoom: { pos: [3.8, 3.0, 4.2], target: [0, 1.25, 0], dim: 'clutter' } },
+    { title: '4. 멀티 헤드 디코더', body: '공유 토큰에서 Geometry · Detection · Occupancy · Gaussian 헤드가 갈라집니다.', phase: 3, zoom: { pos: [0.15, 4.0, 6.8], target: [0, 2.9, 0], dim: 'heads' } },
     { title: '5. 3D 검출·점유', body: '검출 박스와 occupancy가 장면 토큰 위에서 동시에 읽힙니다.', phase: 4 },
     { title: '6. Video 추론', body: '윈도우 출력을 pose graph로 정렬하고 객체 트랙을 이어 긴 클립을 처리합니다.', phase: 5 },
   ];
@@ -1690,17 +1826,23 @@ function initF4D() {
     zoom.clearDetail();
     setStreetHome(camera, orbit, zoom, home);
     const st = steps.find((s) => s.phase === p);
-    if (st?.zoom) zoom.setDetail(st.zoom.pos, st.zoom.target);
+    if (st?.zoom) zoom.setDetail(st.zoom.pos, st.zoom.target, dimGroupsF4d(st));
     const cap = root?.querySelector?.('[data-role="sticky-caption"]');
     if (cap && st) cap.textContent = st.title.replace(/^\d+\.\s*/, '');
     renderer.render(scene, camera);
   }
 
-  bindLabUI(root, steps, (i) => { applyPhase(steps[i].phase); orbit.easeHome(0); zoom.captureHome(); if (steps[i].zoom) zoom.setDetail(steps[i].zoom.pos, steps[i].zoom.target); }, 'f4d');
+  function dimGroupsF4d(st) {
+    if (!st?.zoom?.dim) return [];
+    if (st.zoom.dim === 'heads') return [...clutterF4d, camGroup, attnGroup];
+    return clutterF4d;
+  }
+  bindLabUI(root, steps, (i) => { applyPhase(steps[i].phase); orbit.easeHome(0); zoom.captureHome(); if (steps[i].zoom) zoom.setDetail(steps[i].zoom.pos, steps[i].zoom.target, dimGroupsF4d(steps[i])); }, 'f4d');
   __labDebug['f4d'] = { scene, camera, canvas, orbit, renderer };
   __labZoom['f4d'] = (step, progress) => {
     const st = steps[step];
     if (!st?.zoom) { zoom.scrub(0); return; }
+    if (st.zoom.dim) zoom.setDetail(st.zoom.pos, st.zoom.target, dimGroupsF4d(st));
     zoom.scrub(zoomEnvelope(progress));
   };
 

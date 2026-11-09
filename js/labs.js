@@ -189,26 +189,97 @@ function attachOrbit(camera, domElement, targetVec) {
 
 
 /* ── Shared street kit + scroll-zoom rig (light labs) ── */
+/** Side profile (x = length, front = +x, y = up) extruded across the car's width. */
+function extrudeProfile(points, width, bevel) {
+  const shape = new THREE.Shape();
+  shape.moveTo(...points[0]);
+  points.slice(1).forEach((pt) => (pt.length === 4 ? shape.quadraticCurveTo(...pt) : shape.lineTo(...pt)));
+  shape.closePath();
+  const depth = Math.max(0.01, width - bevel * 2);
+  const geo = new THREE.ExtrudeGeometry(shape, {
+    depth, bevelEnabled: true, bevelSize: bevel, bevelThickness: bevel, bevelSegments: 3, curveSegments: 10,
+  });
+  geo.translate(0, 0, -depth / 2);
+  geo.rotateY(-Math.PI / 2); // +x (front) → +z
+  return geo;
+}
+
+let carShadowTex = null;
+function carShadowTexture() {
+  if (carShadowTex) return carShadowTex;
+  const c = document.createElement('canvas');
+  c.width = c.height = 64;
+  const ctx = c.getContext('2d');
+  const grd = ctx.createRadialGradient(32, 32, 4, 32, 32, 32);
+  grd.addColorStop(0, 'rgba(0,0,0,.75)');
+  grd.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = grd;
+  ctx.fillRect(0, 0, 64, 64);
+  carShadowTex = new THREE.CanvasTexture(c);
+  return carShadowTex;
+}
+
+/** Stylised low-poly sedan: beveled body, glass greenhouse, wheels, LED light bars, contact shadow. */
 function makeCar(color, len = 1.9, wid = 0.9, h = 0.55) {
   const g = new THREE.Group();
+  const L = len / 2;
+  const bev = Math.min(wid, h) * 0.08;
+  const clear = h * 0.2, belt = h * 0.55, roof = h * 0.96;
+
   const body = new THREE.Mesh(
-    new THREE.BoxGeometry(wid, h * 0.55, len),
-    new THREE.MeshStandardMaterial({ color, metalness: 0.45, roughness: 0.4 })
+    extrudeProfile([
+      [-L, clear], [L, clear], [L, belt * 0.78],
+      [L * 0.98, belt, L * 0.72, belt],             // rounded nose → hood
+      [-L * 0.82, belt],
+      [-L, belt * 0.98, -L, belt * 0.72],           // rounded tail
+    ], wid, bev),
+    new THREE.MeshPhysicalMaterial({ color, metalness: 0.25, roughness: 0.32, clearcoat: 1, clearcoatRoughness: 0.15 })
   );
-  body.position.y = h * 0.32;
   g.add(body);
-  const cabin = new THREE.Mesh(
-    new THREE.BoxGeometry(wid * 0.85, h * 0.42, len * 0.45),
-    new THREE.MeshStandardMaterial({ color: 0x1e293b, metalness: 0.3, roughness: 0.35 })
+
+  const glass = new THREE.Mesh(
+    extrudeProfile([
+      [L * 0.5, belt], [L * 0.12, roof, L * 0.02, roof],   // raked windshield
+      [-L * 0.42, roof], [-L * 0.72, belt],                  // fastback rear
+    ], wid * 0.8, bev * 0.8),
+    new THREE.MeshPhysicalMaterial({ color: 0x0b1220, emissive: 0x0c4a6e, emissiveIntensity: 0.35, metalness: 0.4, roughness: 0.08, clearcoat: 1, transparent: true, opacity: 0.92 })
   );
-  cabin.position.set(0, h * 0.72, -len * 0.05);
-  g.add(cabin);
-  const lampMat = new THREE.MeshStandardMaterial({ color: 0xfbbf24, emissive: 0xfbbf24, emissiveIntensity: 0.7 });
-  [-wid * 0.32, wid * 0.32].forEach((x) => {
-    const lamp = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.06, 0.05), lampMat);
-    lamp.position.set(x, h * 0.35, len * 0.5);
-    g.add(lamp);
-  });
+  g.add(glass);
+
+  const r = h * 0.23;
+  const wheelGeo = new THREE.CylinderGeometry(r, r, wid * 0.16, 20);
+  wheelGeo.rotateZ(Math.PI / 2);
+  const tire = new THREE.MeshStandardMaterial({ color: 0x0a0d14, roughness: 0.85 });
+  const hubGeo = new THREE.CylinderGeometry(r * 0.55, r * 0.55, wid * 0.17, 14);
+  hubGeo.rotateZ(Math.PI / 2);
+  const hub = new THREE.MeshStandardMaterial({ color: 0x94a3b8, metalness: 0.8, roughness: 0.3 });
+  [L * 0.62, -L * 0.6].forEach((z) => [-1, 1].forEach((side) => {
+    const x = side * (wid / 2 - wid * 0.06);
+    const w = new THREE.Mesh(wheelGeo, tire);
+    w.position.set(x, r, z);
+    const c = new THREE.Mesh(hubGeo, hub);
+    c.position.set(x + side * 0.004, r, z);
+    g.add(w, c);
+  }));
+
+  const bar = (col, z, y) => {
+    const m = new THREE.Mesh(
+      new THREE.BoxGeometry(wid * 0.82, h * 0.06, 0.03),
+      new THREE.MeshStandardMaterial({ color: col, emissive: col, emissiveIntensity: 1.6 })
+    );
+    m.position.set(0, y, z);
+    g.add(m);
+  };
+  bar(0xe0f2fe, L + bev + 0.005, belt * 0.7);   // headlight strip
+  bar(0xef4444, -L - bev - 0.005, belt * 0.8);  // tail-light strip
+
+  const shadow = new THREE.Mesh(
+    new THREE.PlaneGeometry(wid * 1.5, len * 1.25),
+    new THREE.MeshBasicMaterial({ map: carShadowTexture(), transparent: true, depthWrite: false })
+  );
+  shadow.rotation.x = -Math.PI / 2;
+  shadow.position.y = 0.012;
+  g.add(shadow);
   return g;
 }
 

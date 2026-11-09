@@ -68,6 +68,94 @@ function attachOrbit(camera, domElement, targetVec) {
   const homePos = camera.position.clone();
   const homeTarget = controls.target.clone();
   let anim = 0;
+  let fitRoot = null;
+  const margin = 1.14;
+
+  function setHomeFromCamera() {
+    homePos.copy(camera.position);
+    homeTarget.copy(controls.target);
+  }
+
+  function expandContentBox(root, box) {
+    root.updateWorldMatrix(true, true);
+    root.traverse((obj) => {
+      if (obj.isLight || obj.isCamera) return;
+      if (obj.type === 'GridHelper' || obj.type === 'AxesHelper') return;
+      if (!(obj.isMesh || obj.isLine || obj.isLineSegments || obj.isPoints)) return;
+      const was = obj.visible;
+      obj.visible = true; // include hidden step objects so framing stays safe
+      box.expandByObject(obj);
+      obj.visible = was;
+    });
+  }
+
+  /** Frame all content in root with ~12% margin; updates orbit home. */
+  function fitContent(root, m = margin) {
+    if (root) fitRoot = root;
+    if (!fitRoot) return;
+    const box = new THREE.Box3();
+    expandContentBox(fitRoot, box);
+    if (box.isEmpty()) return;
+
+    const size = box.getSize(new THREE.Vector3());
+    const center = box.getCenter(new THREE.Vector3());
+    const sx = Math.max(size.x, 0.01);
+    const sy = Math.max(size.y, 0.01);
+    const sz = Math.max(size.z, 0.01);
+
+    // Prefer a pleasant elevated viewing angle (keep current azimuth if set)
+    let dir = camera.position.clone().sub(controls.target);
+    if (dir.lengthSq() < 1e-6) dir.set(0.25, 0.55, 1);
+    dir.normalize();
+    if (dir.y < 0.22) dir.y = 0.38;
+    dir.normalize();
+
+    // Seed distance from AABB + FOV, then refine with AABB corner NDC fit
+    const fov = THREE.MathUtils.degToRad(camera.fov);
+    const aspect = Math.max(camera.aspect || 1, 0.1);
+    const distV = (sy * 0.5) / Math.tan(fov * 0.5);
+    const distH = (sx * 0.5) / Math.tan(fov * 0.5) / aspect;
+    let dist = Math.max(distV, distH, sz * 0.7, 2.5) * m;
+
+    const corners = [
+      new THREE.Vector3(box.min.x, box.min.y, box.min.z),
+      new THREE.Vector3(box.min.x, box.min.y, box.max.z),
+      new THREE.Vector3(box.min.x, box.max.y, box.min.z),
+      new THREE.Vector3(box.min.x, box.max.y, box.max.z),
+      new THREE.Vector3(box.max.x, box.min.y, box.min.z),
+      new THREE.Vector3(box.max.x, box.min.y, box.max.z),
+      new THREE.Vector3(box.max.x, box.max.y, box.min.z),
+      new THREE.Vector3(box.max.x, box.max.y, box.max.z),
+    ];
+    const pad = 1 / m; // NDC limit so ~12% margin when m≈1.14
+    const ndc = new THREE.Vector3();
+
+    for (let iter = 0; iter < 8; iter++) {
+      camera.position.copy(center).addScaledVector(dir, dist);
+      controls.target.copy(center);
+      camera.near = Math.max(0.05, dist / 100);
+      camera.far = Math.max(100, dist * 20);
+      camera.updateProjectionMatrix();
+      camera.updateMatrixWorld(true);
+
+      let maxAbs = 0;
+      for (const c of corners) {
+        ndc.copy(c).project(camera);
+        if (!Number.isFinite(ndc.x) || !Number.isFinite(ndc.y)) continue;
+        maxAbs = Math.max(maxAbs, Math.abs(ndc.x), Math.abs(ndc.y));
+      }
+      if (maxAbs <= pad || maxAbs < 1e-6) break;
+      dist *= (maxAbs / pad) * 1.02;
+    }
+
+    camera.position.copy(center).addScaledVector(dir, dist);
+    controls.target.copy(center);
+    camera.near = Math.max(0.05, dist / 100);
+    camera.far = Math.max(100, dist * 20);
+    camera.updateProjectionMatrix();
+    controls.update();
+    setHomeFromCamera();
+  }
 
   function easeHome(ms = 650) {
     if (reduceMotion) {
@@ -92,11 +180,13 @@ function attachOrbit(camera, domElement, targetVec) {
     anim = requestAnimationFrame(tick);
   }
 
-  return { controls, easeHome };
+  return { controls, easeHome, fitContent, setHomeFromCamera };
 }
 
 const __labAPI = {};
 window.__labAPI = __labAPI;
+const __labDebug = {};
+window.__labDebug = __labDebug;
 
 function bindLabUI(root, steps, onStep, labName) {
   // Optional legacy panel (may be absent in scrolly layout)
@@ -189,7 +279,7 @@ function initStreamPETR() {
 
   // Memory queue slots (FIFO) — left side
   const queueGroup = new THREE.Group();
-  queueGroup.position.set(-3.2, 0.9, 0);
+  queueGroup.position.set(-2.6, 0.9, 0);
   scene.add(queueGroup);
   const slots = [];
   for (let k = 0; k < 5; k++) {
@@ -236,7 +326,7 @@ function initStreamPETR() {
 
   // Image feature planes (current)
   const imgGroup = new THREE.Group();
-  imgGroup.position.set(2.8, 1.0, 0);
+  imgGroup.position.set(2.2, 1.0, 0);
   scene.add(imgGroup);
   for (let i = 0; i < 4; i++) {
     const p = new THREE.Mesh(
@@ -287,13 +377,18 @@ function initStreamPETR() {
     }
   }
 
-  bindLabUI(root, steps, (i) => { applyPhase(steps[i].phase); orbit.easeHome(); }, 'streampetr');
+    bindLabUI(root, steps, (i) => { applyPhase(steps[i].phase); orbit.easeHome(); }, 'streampetr');
+  __labDebug['streampetr'] = { scene, camera, canvas, orbit, renderer };
 
   let running = false;
   const io = new IntersectionObserver(([e]) => { running = e.isIntersecting; }, { threshold: 0.15 });
   io.observe(canvas);
   fit(renderer, camera, canvas);
-  window.addEventListener('resize', () => fit(renderer, camera, canvas));
+  orbit.fitContent(scene);
+  window.addEventListener('resize', () => {
+    fit(renderer, camera, canvas);
+    orbit.fitContent(scene);
+  });
   let t0 = performance.now();
   function frame(now) {
     requestAnimationFrame(frame);
@@ -399,11 +494,16 @@ function initS4Dv1() {
     else anchor.scale.setScalar(1);
   }
 
-  bindLabUI(root, steps, (i) => { applyPhase(steps[i].phase); orbit.easeHome(); }, 's4dv1');
+    bindLabUI(root, steps, (i) => { applyPhase(steps[i].phase); orbit.easeHome(); }, 's4dv1');
+  __labDebug['s4dv1'] = { scene, camera, canvas, orbit, renderer };
   let running = false;
   new IntersectionObserver(([e]) => { running = e.isIntersecting; }, { threshold: 0.15 }).observe(canvas);
   fit(renderer, camera, canvas);
-  window.addEventListener('resize', () => fit(renderer, camera, canvas));
+  orbit.fitContent(scene);
+  window.addEventListener('resize', () => {
+    fit(renderer, camera, canvas);
+    orbit.fitContent(scene);
+  });
   let t0 = performance.now();
   (function frame(now) {
     requestAnimationFrame(frame);
@@ -520,11 +620,16 @@ function initS4Dv2() {
     }
   }
 
-  bindLabUI(root, steps, (i) => { applyPhase(steps[i].phase); orbit.easeHome(); }, 's4dv2');
+    bindLabUI(root, steps, (i) => { applyPhase(steps[i].phase); orbit.easeHome(); }, 's4dv2');
+  __labDebug['s4dv2'] = { scene, camera, canvas, orbit, renderer };
   let running = false;
   new IntersectionObserver(([e]) => { running = e.isIntersecting; }, { threshold: 0.15 }).observe(canvas);
   fit(renderer, camera, canvas);
-  window.addEventListener('resize', () => fit(renderer, camera, canvas));
+  orbit.fitContent(scene);
+  window.addEventListener('resize', () => {
+    fit(renderer, camera, canvas);
+    orbit.fitContent(scene);
+  });
   let t0 = performance.now();
   (function frame(now) {
     requestAnimationFrame(frame);
@@ -633,11 +738,16 @@ function initS4Dv3() {
     infer.children.forEach(c => { c.material.opacity = p === 0 ? 0.85 : 0.35; });
   }
 
-  bindLabUI(root, steps, (i) => { applyPhase(steps[i].phase); orbit.easeHome(); }, 's4dv3');
+    bindLabUI(root, steps, (i) => { applyPhase(steps[i].phase); orbit.easeHome(); }, 's4dv3');
+  __labDebug['s4dv3'] = { scene, camera, canvas, orbit, renderer };
   let running = false;
   new IntersectionObserver(([e]) => { running = e.isIntersecting; }, { threshold: 0.15 }).observe(canvas);
   fit(renderer, camera, canvas);
-  window.addEventListener('resize', () => fit(renderer, camera, canvas));
+  orbit.fitContent(scene);
+  window.addEventListener('resize', () => {
+    fit(renderer, camera, canvas);
+    orbit.fitContent(scene);
+  });
   let t0 = performance.now();
   (function frame(now) {
     requestAnimationFrame(frame);
@@ -763,11 +873,16 @@ function initF4D() {
     }
   }
 
-  bindLabUI(root, steps, (i) => { applyPhase(steps[i].phase); orbit.easeHome(); }, 'f4d');
+    bindLabUI(root, steps, (i) => { applyPhase(steps[i].phase); orbit.easeHome(); }, 'f4d');
+  __labDebug['f4d'] = { scene, camera, canvas, orbit, renderer };
   let running = false;
   new IntersectionObserver(([e]) => { running = e.isIntersecting; }, { threshold: 0.15 }).observe(canvas);
   fit(renderer, camera, canvas);
-  window.addEventListener('resize', () => fit(renderer, camera, canvas));
+  orbit.fitContent(scene);
+  window.addEventListener('resize', () => {
+    fit(renderer, camera, canvas);
+    orbit.fitContent(scene);
+  });
   let t0 = performance.now();
   (function frame(now) {
     requestAnimationFrame(frame);

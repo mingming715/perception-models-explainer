@@ -58,10 +58,14 @@ function paperHTML(id, p) {
     <div class="method-scrolly" data-lab="${p.lab}">
       <div class="method-sticky">
         <div class="lab-view sticky-view">
-          <span class="lab-badge">Three.js · 스크롤 연동</span>
-          <span class="lab-hint">드래그로 회전</span>
           <canvas id="lab-${p.lab}"></canvas>
-          <p class="sticky-caption" data-role="sticky-caption">${esc(p.methodSteps[0].title)}</p>
+          <div class="lab-hud">
+            <p class="lab-count"><b data-role="step-num">01</b> / ${String(p.methodSteps.length).padStart(2, '0')}</p>
+            <p class="lab-title" data-role="sticky-caption">${esc(p.methodSteps[0].title)}</p>
+            <span class="lab-bar"><i data-role="step-bar" style="width:${100 / p.methodSteps.length}%"></i></span>
+          </div>
+          <span class="lab-hint">드래그로 회전</span>
+          <ul class="lab-legend">${(p.legend || []).map(([c, t]) => `<li><i style="background:${c}"></i>${esc(t)}</li>`).join('')}</ul>
         </div>
       </div>
       <div class="method-steps">

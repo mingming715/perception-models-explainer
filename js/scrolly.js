@@ -56,6 +56,8 @@ export function initMethodScrolly() {
     const lab = wrap.dataset.lab;
     const steps = [...wrap.querySelectorAll('.mstep')];
     const caption = wrap.querySelector('[data-role="sticky-caption"]');
+    const num = wrap.querySelector('[data-role="step-num"]');
+    const bar = wrap.querySelector('[data-role="step-bar"]');
     let current = -1;
 
     function setStep(i) {
@@ -63,6 +65,8 @@ export function initMethodScrolly() {
       current = i;
       steps.forEach((s, idx) => s.classList.toggle('on', idx === i));
       if (caption) caption.textContent = steps[i].querySelector('h3')?.textContent || '';
+      if (num) num.textContent = String(i + 1).padStart(2, '0');
+      if (bar) bar.style.width = `${((i + 1) / steps.length) * 100}%`;
       window.dispatchEvent(new CustomEvent('lab:step', { detail: { lab, step: i } }));
     }
 

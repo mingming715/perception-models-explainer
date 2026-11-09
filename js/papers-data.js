@@ -13,6 +13,7 @@ export const PAPERS = {
       caption: '그림 3 (논문). StreamPETR 전체 구조 — History Memory Queue → Ego Transform → Propagation Transformer → Top-K push. 출처: Wang et al., arXiv:2303.11926.',
     },
     lab: 'streampetr',
+    legend: [['#db2777', '현재 쿼리'], ['#22d3ee', '메모리 큐 (Top-K)'], ['#8b5cf6', '정렬된 과거 쿼리'], ['#f59e0b', 'v·Δt 보정 (MLN)'], ['#34d399', '이미지 cross-attn']],
     overview: [
       'PETR 계열의 object query를 <b>스트리밍 비디오</b>로 확장한 모델입니다. BEV feature나 과거 이미지를 통째로 들고 다니지 않고, 검출에 쓰인 sparse query만 시간축으로 전파합니다.',
       '핵심은 <b>object-centric temporal modeling</b>: 메모리 큐 → ego/모션 정렬 → Propagation Transformer → Top-K 갱신 루프입니다.',
@@ -84,6 +85,7 @@ export const PAPERS = {
       caption: '그림 2 (논문). Sparse4D 전체 구조 — multi-view/scale/timestamp features와 Deformable 4D Aggregation. 출처: Lin et al., arXiv:2211.10581.',
     },
     lab: 's4dv1',
+    legend: [['#fbbf24', '3D 앵커'], ['#db2777', '4D keypoints · 투영'], ['#94a3b8', '과거 프레임 (T)']],
     overview: [
       'Sparse anchor(instance) 기반 멀티뷰 3D 검출에 <b>시간축 이미지 feature</b>를 붙인 첫 Sparse4D입니다.',
       '시간 정보는 instance 상태가 아니라 <b>image feature queue</b>에 있습니다.',
@@ -145,6 +147,7 @@ export const PAPERS = {
       caption: '그림 2 (논문). Sparse4Dv2 Overall Framework — temporal instance Select & Update, 현재 multi-view feature만 decoder 입력. 출처: Lin et al., arXiv:2305.14018.',
     },
     lab: 's4dv2',
+    legend: [['#22d3ee', 'instance (색 = ID)'], ['#f59e0b', 'ego + v·Δt 이동'], ['#34d399', '현재 이미지 샘플'], ['#db2777', '신규 객체']],
     overview: [
       'v1의 이미지 feature 큐를 제거하고, <b>instance 상태를 재귀 전달</b>하는 구조로 바꿉니다.',
       'StreamPETR과 같은 sparse recurrent 계열로 정렬됩니다.',
@@ -217,6 +220,7 @@ export const PAPERS = {
       caption: '그림 1 (논문). Sparse4D framework overview. v3 추론 구조는 v2를 따릅니다. 출처: Lin et al., arXiv:2311.11722.',
     },
     lab: 's4dv3',
+    legend: [['#94a3b8', '추론 앵커 (v2)'], ['#34d399', 'GT'], ['#f59e0b', 'noisy GT (train-only)'], ['#22d3ee', 'feature · centerness'], ['#8b5cf6', 'anchor emb · yawness']],
     overview: [
       '구조적 추론 경로를 바꾸지 않고 <b>학습·attention·품질 헤드</b>를 보강한 버전입니다.',
       '추적(E2E tracking)으로도 확장됩니다.',
@@ -293,6 +297,7 @@ export const PAPERS = {
       caption: '그림 2 (논문). Foundation4D 아키텍처 — 멀티 카메라×시간 → factorized attention → Geometry / Gaussian / Detection / Occupancy. 출처: arXiv:2610.30340.',
     },
     lab: 'f4d',
+    legend: [['#8b5cf6', 'scene token · time attn'], ['#22d3ee', 'view attn · 검출 박스'], ['#34d399', 'Detection head']],
     overview: [
       '객체 query를 이어받는 Sparse Query 계열과 달리, <b>장면 토큰</b>으로 기하·점유·재구성·검출을 공유 backbone에서 풉니다.',
       '윈도우 추론 결과를 pose graph로 정렬하는 video pipeline을 포함합니다.',

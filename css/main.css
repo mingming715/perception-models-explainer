@@ -444,10 +444,14 @@ main .placeholder{
    Grid column STRETCHES to steps height; card inside is position:sticky.
    align-items:start on the scrolly made the sticky column only as tall as the
    card, so it scrolled away with no room to pin. */
+/* Method section breaks out of the 1180px reading column: big stage + narrow steps */
+.paper-sec[data-sec="method"]{ max-width: 1640px; padding-left: 4vw; padding-right: 4vw; }
+.paper-sec[data-sec="method"] .sec-title,
+.paper-sec[data-sec="method"] .paper-fig{ max-width: 1180px; margin-left: auto; margin-right: auto; }
 .method-scrolly{
   display:grid;
-  grid-template-columns: minmax(280px, 1.05fr) minmax(280px, 0.95fr);
-  gap: 28px;
+  grid-template-columns: minmax(0, 1.85fr) minmax(280px, 0.8fr);
+  gap: 44px;
   align-items: stretch; /* left col = full height of steps */
   margin: 8px 0 36px;
   /* no overflow/transform here — would break sticky */
@@ -468,31 +472,53 @@ main .placeholder{
   align-self: start;
   width: 100%;
   z-index: 5;
-  height: min(62vh, 520px); min-height: 360px;
-  border-radius:16px; overflow:hidden; border:1px solid var(--line); background:#f7f8f5;
-  box-shadow:var(--shadow);
+  height: calc(100vh - var(--nav-h) - 32px); height: calc(100dvh - var(--nav-h) - 32px);
+  min-height: 420px; max-height: 920px;
+  border-radius:22px; overflow:hidden; background:#0b1220;
+  box-shadow: 0 30px 60px -20px rgba(9,14,19,.45), 0 0 0 1px rgba(9,14,19,.08);
+}
+/* soft vignette so the street fades into the frame */
+.sticky-view::after{
+  content:""; position:absolute; inset:0; pointer-events:none; z-index:1;
+  background: radial-gradient(120% 90% at 50% 45%, transparent 55%, rgba(11,18,32,.55) 100%);
 }
 .sticky-view canvas{ position:absolute; inset:0; width:100%; height:100%; }
-.sticky-caption{
-  position:absolute; left:14px; right:14px; bottom:12px; z-index:2; margin:0;
-  font-size:13px; font-weight:700; color:var(--tx);
-  background:rgba(255,255,255,.88); border:1px solid var(--line); border-radius:10px;
-  padding:8px 12px; backdrop-filter:blur(6px);
+.lab-hud{
+  position:absolute; top:18px; left:18px; z-index:2; width:min(360px, calc(100% - 150px));
+  padding:12px 16px 14px; border-radius:14px; color:#e2e8f0;
+  background:rgba(11,18,32,.62); border:1px solid rgba(255,255,255,.1);
+  backdrop-filter:blur(10px) saturate(1.2); pointer-events:none;
 }
-.method-steps{ display:flex; flex-direction:column; gap:0; }
+.lab-count{ margin:0 0 2px; font:600 11px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace; letter-spacing:.14em; color:#94a3b8; }
+.lab-count b{ color:#67e8f9; font-weight:700; }
+.lab-title{ margin:0 0 10px; font-size:17px; font-weight:750; letter-spacing:-.01em; line-height:1.3; color:#f8fafc; }
+.lab-bar{ display:block; height:3px; border-radius:2px; background:rgba(255,255,255,.12); overflow:hidden; }
+.lab-bar i{ display:block; height:100%; border-radius:2px; background:linear-gradient(90deg,#22d3ee,#a78bfa); transition:width .5s cubic-bezier(.22,1,.36,1); }
+.lab-legend{
+  position:absolute; left:18px; right:18px; bottom:16px; z-index:2; margin:0; padding:0; list-style:none;
+  display:flex; flex-wrap:wrap; gap:6px 8px; pointer-events:none;
+}
+.lab-legend li{
+  display:inline-flex; align-items:center; gap:7px; padding:5px 11px 5px 9px; border-radius:999px;
+  font-size:12px; font-weight:600; color:#cbd5e1;
+  background:rgba(11,18,32,.62); border:1px solid rgba(255,255,255,.1); backdrop-filter:blur(8px);
+}
+.lab-legend i{ width:8px; height:8px; border-radius:50%; box-shadow:0 0 8px currentColor; }
+.method-steps{ display:flex; flex-direction:column; gap:0; padding-right:96px; } /* clear the fixed section rail */
+@media (max-width:1100px){ .method-steps{ padding-right:0; } }
 .mstep{
-  min-height: 52vh;
+  min-height: 62vh;
   display:flex; flex-direction:column; justify-content:center;
   padding: 28px 12px 28px 32px; /* room between accent line and text */
   border-left: 2px solid transparent;
-  opacity: .35; transition: opacity .25s, border-color .25s;
+  opacity: .3; transition: opacity .35s, border-color .35s, transform .35s;
 }
-.mstep.on{ opacity: 1; border-left-color: var(--acc); }
+.mstep.on{ opacity: 1; border-left-color: var(--acc); transform: translateX(4px); }
 .mstep-num{
   font-size:12px; font-weight:700; letter-spacing:.14em; color:var(--acc); margin-bottom:8px;
 }
-.mstep h3{ margin:0 0 10px; font-size:22px; letter-spacing:-.02em; }
-.mstep p{ margin:0; color:var(--mut); font-size:15px; line-height:1.7; max-width:42ch; }
+.mstep h3{ margin:0 0 12px; font-size:24px; letter-spacing:-.02em; }
+.mstep p{ margin:0; color:var(--mut); font-size:15.5px; line-height:1.75; max-width:38ch; }
 .method-aside{
   margin-top: 12px; padding: 16px 18px; border-radius:14px;
   background:var(--pan); border:1px solid var(--line); box-shadow:var(--shadow);
@@ -507,8 +533,13 @@ main .placeholder{
   .sticky-view{
     position: sticky;
     top: calc(var(--nav-h) + 12px);
-    height: min(42vh, 320px); min-height: 240px;
+    height: 46vh; min-height: 260px; max-height: none; border-radius:16px;
   }
+  .lab-hud{ top:10px; left:10px; padding:8px 12px 10px; width:calc(100% - 20px); }
+  .lab-title{ font-size:14px; margin-bottom:6px; }
+  .lab-hint{ display:none; }
+  .lab-legend{ left:10px; right:10px; bottom:10px; gap:4px; }
+  .lab-legend li{ font-size:11px; padding:3px 9px 3px 7px; }
   .mstep{ min-height: 70vh; padding: 22px 10px 22px 22px; }
 }
 
@@ -557,9 +588,9 @@ main .placeholder{
 }
 
 .lab-hint{
-  position:absolute; top:12px; right:12px; z-index:2;
-  font-size:11px; font-weight:600; letter-spacing:.04em; color:var(--mut);
-  background:rgba(255,255,255,.82); border:1px solid var(--line); border-radius:999px;
+  position:absolute; top:18px; right:18px; z-index:2;
+  font-size:11px; font-weight:600; letter-spacing:.04em; color:#94a3b8;
+  background:rgba(11,18,32,.62); border:1px solid rgba(255,255,255,.1); border-radius:999px;
   padding:5px 10px; backdrop-filter:blur(6px); pointer-events:none;
 }
 .sticky-view canvas, #hero-canvas{

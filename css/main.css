@@ -392,31 +392,52 @@ main .placeholder{
 }
 .prose b{ color:var(--tx); }
 
-/* Right progress rail */
+/* Right progress rail — thin line + always-visible muted labels */
 .paper-progress{
-  position:fixed; right:18px; top:50%; transform:translateY(-50%);
-  z-index:40; display:flex; flex-direction:column; gap:10px;
-  padding:10px 8px; border-radius:999px;
-  background:rgba(255,255,255,.88); border:1px solid var(--line);
-  backdrop-filter:blur(8px); box-shadow:var(--shadow);
+  position:fixed; right:20px; top:50%; transform:translateY(-50%);
+  z-index:40; display:flex; flex-direction:column; gap:0;
+  padding:4px 0 4px 0; margin:0;
+  background:transparent; border:0; border-radius:0;
+  box-shadow:none; backdrop-filter:none;
+}
+.paper-progress::before{
+  content:""; position:absolute; left:4px; top:10px; bottom:10px;
+  width:1px; background:var(--line2); opacity:.85; pointer-events:none;
 }
 .paper-progress a{
-  display:flex; align-items:center; gap:10px; color:var(--mut);
-  font-size:11px; font-weight:600; letter-spacing:.04em; writing-mode: horizontal-tb;
-  text-decoration:none; opacity:.55; transition:opacity .2s, color .2s;
-  padding: 2px 4px 2px 2px;
+  position:relative;
+  display:flex; align-items:center; gap:12px; color:var(--mut);
+  font-size:11px; font-weight:500; letter-spacing:.02em;
+  text-decoration:none; opacity:1;
+  padding:9px 6px 9px 0;
+  transition: color .25s ease;
 }
 .paper-progress a i{
-  width:8px; height:8px; border-radius:50%; background:#c5cbc3; display:block; flex:0 0 auto;
-  transition: background .2s, box-shadow .2s;
+  width:9px; height:9px; border-radius:50%;
+  background:var(--bg2); border:1.5px solid var(--line2);
+  display:block; flex:0 0 auto; z-index:1;
+  box-sizing:border-box;
+  transition: background .25s ease, border-color .25s ease, box-shadow .25s ease, transform .25s ease;
 }
-.paper-progress a span{ max-width:0; overflow:hidden; white-space:nowrap; opacity:0; transition:max-width .2s, opacity .2s; }
-.paper-progress a:hover span, .paper-progress a.on span{ max-width:90px; opacity:1; }
-.paper-progress a.on{ opacity:1; color:var(--acc); }
-.paper-progress a.on i{ background:var(--acc); box-shadow:0 0 10px var(--glow); }
+.paper-progress a span{
+  max-width:none; overflow:visible; white-space:nowrap;
+  opacity:.48; color:var(--mut);
+  transition: opacity .25s ease, color .25s ease, transform .25s ease, font-weight .25s ease;
+}
+.paper-progress a:hover span{ opacity:.85; color:var(--tx); }
+.paper-progress a:hover i{ border-color:var(--acc); }
+.paper-progress a.on{ color:var(--acc); }
+.paper-progress a.on span{
+  opacity:1; color:var(--acc); font-weight:700;
+  transform: translateX(-1px);
+}
+.paper-progress a.on i{
+  background:var(--acc); border-color:var(--acc);
+  box-shadow:0 0 0 3px var(--glow);
+  transform: scale(1.12);
+}
 @media (max-width:1100px){
-  .paper-progress{ right:8px; }
-  .paper-progress a span{ display:none; }
+  .paper-progress{ display:none !important; }
 }
 
 /* Method scrolly: sticky canvas + step text

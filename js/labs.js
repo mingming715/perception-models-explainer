@@ -186,6 +186,223 @@ function attachOrbit(camera, domElement, targetVec) {
   return { controls, easeHome, fitContent, setHomeFromCamera };
 }
 
+
+/* ── Shared street kit + scroll-zoom rig (light labs) ── */
+function makeCar(color, len = 1.9, wid = 0.9, h = 0.55) {
+  const g = new THREE.Group();
+  const body = new THREE.Mesh(
+    new THREE.BoxGeometry(wid, h * 0.55, len),
+    new THREE.MeshStandardMaterial({ color, metalness: 0.45, roughness: 0.4 })
+  );
+  body.position.y = h * 0.32;
+  g.add(body);
+  const cabin = new THREE.Mesh(
+    new THREE.BoxGeometry(wid * 0.85, h * 0.42, len * 0.45),
+    new THREE.MeshStandardMaterial({ color: 0x1e293b, metalness: 0.3, roughness: 0.35 })
+  );
+  cabin.position.set(0, h * 0.72, -len * 0.05);
+  g.add(cabin);
+  const lampMat = new THREE.MeshStandardMaterial({ color: 0xfbbf24, emissive: 0xfbbf24, emissiveIntensity: 0.7 });
+  [-wid * 0.32, wid * 0.32].forEach((x) => {
+    const lamp = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.06, 0.05), lampMat);
+    lamp.position.set(x, h * 0.35, len * 0.5);
+    g.add(lamp);
+  });
+  return g;
+}
+
+function addStreetGround(scene) {
+  const ground = new THREE.Mesh(
+    new THREE.PlaneGeometry(28, 28),
+    new THREE.MeshStandardMaterial({ color: 0xe6ebe3, roughness: 0.95, metalness: 0 })
+  );
+  ground.rotation.x = -Math.PI / 2;
+  ground.position.y = -0.001;
+  ground.userData.skipFit = true;
+  scene.add(ground);
+  const road = new THREE.Mesh(
+    new THREE.PlaneGeometry(6.2, 26),
+    new THREE.MeshStandardMaterial({ color: 0x9aa3a8, roughness: 0.92, metalness: 0.05 })
+  );
+  road.rotation.x = -Math.PI / 2;
+  road.position.y = 0.002;
+  road.userData.skipFit = true;
+  scene.add(road);
+  const laneMat = new THREE.MeshBasicMaterial({ color: 0xf8fafc });
+  for (let i = -10; i <= 10; i++) {
+    if (i === 0) continue;
+    const dash = new THREE.Mesh(new THREE.PlaneGeometry(0.12, 0.9), laneMat);
+    dash.rotation.x = -Math.PI / 2;
+    dash.position.set(0, 0.01, i * 1.4);
+    dash.userData.skipFit = true;
+    scene.add(dash);
+  }
+  const grid = new THREE.GridHelper(24, 24, 0xb8c0b8, 0xd5dbd4);
+  grid.position.y = 0.003;
+  grid.material.transparent = true;
+  grid.material.opacity = 0.35;
+  scene.add(grid);
+}
+
+function makeFrustumFan(yaw, color = 0x0891b2) {
+  const g = new THREE.Group();
+  const near = 0.3, far = 2.45, nw = 0.18, fw = 1.15, nh = 0.12, fh = 0.62;
+  const corners = [
+    new THREE.Vector3(-nw, -nh, near), new THREE.Vector3(nw, -nh, near),
+    new THREE.Vector3(nw, nh, near), new THREE.Vector3(-nw, nh, near),
+    new THREE.Vector3(-fw, -fh, far), new THREE.Vector3(fw, -fh, far),
+    new THREE.Vector3(fw, fh, far), new THREE.Vector3(-fw, fh, far),
+  ];
+  const edgeIdx = [[0,1],[1,2],[2,3],[3,0],[4,5],[5,6],[6,7],[7,4],[0,4],[1,5],[2,6],[3,7]];
+  const pts = [];
+  edgeIdx.forEach(([a, b]) => { pts.push(corners[a], corners[b]); });
+  g.add(new THREE.LineSegments(
+    new THREE.BufferGeometry().setFromPoints(pts),
+    new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.55 })
+  ));
+  const fanMat = new THREE.MeshBasicMaterial({
+    color, transparent: true, opacity: 0.08, side: THREE.DoubleSide, depthWrite: false
+  });
+  [[0,1,5,4],[1,2,6,5],[2,3,7,6],[3,0,4,7],[4,5,6,7]].forEach((idx) => {
+    const v = idx.flatMap((i) => [corners[i].x, corners[i].y, corners[i].z]);
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array([
+      v[0],v[1],v[2], v[3],v[4],v[5], v[6],v[7],v[8],
+      v[0],v[1],v[2], v[6],v[7],v[8], v[9],v[10],v[11],
+    ]), 3));
+    g.add(new THREE.Mesh(geo, fanMat));
+  });
+  g.rotation.y = yaw;
+  g.position.y = 0.55;
+  return g;
+}
+
+function makeQueryBox(col, size = [1.05, 0.78, 1.85]) {
+  const g = new THREE.Group();
+  const [w, h, d] = size;
+  const edges = new THREE.LineSegments(
+    new THREE.EdgesGeometry(new THREE.BoxGeometry(w, h, d)),
+    new THREE.LineBasicMaterial({ color: col, transparent: true, opacity: 1 })
+  );
+  edges.position.y = h * 0.5;
+  g.add(edges);
+  const fill = new THREE.Mesh(
+    new THREE.BoxGeometry(w, h, d),
+    new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.14, depthWrite: false })
+  );
+  fill.position.y = h * 0.5;
+  g.add(fill);
+  const ref = new THREE.Mesh(
+    new THREE.SphereGeometry(0.09, 14, 14),
+    new THREE.MeshStandardMaterial({ color: col, emissive: col, emissiveIntensity: 1.2, transparent: true, opacity: 1 })
+  );
+  ref.position.y = h * 0.5;
+  g.add(ref);
+  g.userData = { edges, fill, ref, col };
+  return g;
+}
+
+function makePlaceholderTex(hue) {
+  const c = document.createElement('canvas');
+  c.width = 128; c.height = 80;
+  const ctx = c.getContext('2d');
+  const grd = ctx.createLinearGradient(0, 0, 128, 80);
+  grd.addColorStop(0, `hsl(${hue}, 35%, 72%)`);
+  grd.addColorStop(0.5, `hsl(${hue + 20}, 28%, 58%)`);
+  grd.addColorStop(1, `hsl(${hue - 10}, 22%, 48%)`);
+  ctx.fillStyle = grd;
+  ctx.fillRect(0, 0, 128, 80);
+  ctx.fillStyle = 'rgba(30,41,59,.35)';
+  ctx.fillRect(0, 48, 128, 32);
+  ctx.fillStyle = 'rgba(248,250,252,.55)';
+  ctx.fillRect(40, 30, 48, 22);
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+function easeInOut(u) {
+  const x = Math.min(1, Math.max(0, u));
+  return x * x * (3 - 2 * x);
+}
+
+/** Zoom envelope from step scroll progress: in → hold → out */
+function zoomEnvelope(progress, a = 0.12, b = 0.38, c = 0.62, d = 0.88) {
+  if (progress <= a) return 0;
+  if (progress < b) return easeInOut((progress - a) / (b - a));
+  if (progress <= c) return 1;
+  if (progress < d) return 1 - easeInOut((progress - c) / (d - c));
+  return 0;
+}
+
+/**
+ * Scrubbable zoom between orbit home and a detail pose.
+ * reduced-motion: snap to detail when u>0.5 else home.
+ */
+function makeZoomRig(camera, orbit) {
+  const homePos = new THREE.Vector3();
+  const homeTarget = new THREE.Vector3();
+  const detailPos = new THREE.Vector3();
+  const detailTarget = new THREE.Vector3();
+  let hasDetail = false;
+  let lastU = 0;
+
+  function captureHome() {
+    homePos.copy(camera.position);
+    homeTarget.copy(orbit.controls.target);
+  }
+  function setDetail(pos, target) {
+    detailPos.set(pos[0], pos[1], pos[2]);
+    detailTarget.set(target[0], target[1], target[2]);
+    hasDetail = true;
+  }
+  function clearDetail() { hasDetail = false; lastU = 0; }
+  function scrub(u) {
+    if (!hasDetail) return;
+    const t = reduceMotion ? (u > 0.5 ? 1 : 0) : easeInOut(u);
+    lastU = t;
+    camera.position.lerpVectors(homePos, detailPos, t);
+    orbit.controls.target.lerpVectors(homeTarget, detailTarget, t);
+    orbit.controls.update();
+  }
+  return { captureHome, setDetail, clearDetail, scrub, get u() { return lastU; } };
+}
+
+const __labZoom = {};
+window.__labZoom = __labZoom;
+window.addEventListener('lab:progress', (e) => {
+  const { lab, step, progress } = e.detail || {};
+  if (lab && __labZoom[lab]) __labZoom[lab](step, progress);
+});
+
+function bootStreetLab(canvas, opts = {}) {
+  const root = canvas.closest('.method-scrolly') || canvas.closest('.lab');
+  const renderer = makeRenderer(canvas);
+  const scene = new THREE.Scene();
+  scene.fog = new THREE.Fog(0xf4f5f2, 16, 36);
+  const camera = new THREE.PerspectiveCamera(42, 1, 0.1, 80);
+  const home = opts.home || { pos: [3.55, 3.15, 3.85], target: [-0.75, 0.45, 0.2] };
+  camera.position.set(...home.pos);
+  const orbit = attachOrbit(camera, canvas, new THREE.Vector3(...home.target));
+  scene.add(new THREE.AmbientLight(0xffffff, 0.78));
+  const key = new THREE.DirectionalLight(0xffffff, 0.95);
+  key.position.set(5, 8, 4); scene.add(key);
+  addStreetGround(scene);
+  const zoom = makeZoomRig(camera, orbit);
+  return { root, renderer, scene, camera, orbit, zoom, home };
+}
+
+function setStreetHome(camera, orbit, zoom, home) {
+  camera.position.set(...home.pos);
+  orbit.controls.target.set(...home.target);
+  camera.near = 0.08; camera.far = 50;
+  camera.updateProjectionMatrix();
+  orbit.controls.update();
+  orbit.setHomeFromCamera();
+  zoom.captureHome();
+}
+
+
 const __labAPI = {};
 window.__labAPI = __labAPI;
 const __labDebug = {};
@@ -266,6 +483,7 @@ function initStreamPETR() {
   const camera = new THREE.PerspectiveCamera(42, 1, 0.1, 80);
   camera.position.set(6.8, 3.4, 8.2);
   const orbit = attachOrbit(camera, canvas, new THREE.Vector3(-0.6, 0.55, 0.3));
+  const zoom = makeZoomRig(camera, orbit);
 
   scene.add(new THREE.AmbientLight(0xffffff, 0.78));
   const key = new THREE.DirectionalLight(0xffffff, 0.95);
@@ -656,10 +874,10 @@ function initStreamPETR() {
 
   const steps = [
     { title: '1. 현재 프레임 쿼리', body: '주변 차량에 붙은 3D query box(분홍)와 기준점이 현재 프레임에서 나타납니다. 아직 메모리와 섞이지 않습니다.', phase: 0 },
-    { title: '2. FIFO Memory Queue', body: '과거 Top-K foreground query가 시간축을 따라 층층이 쌓입니다. 오래된 레이어일수록 흐려집니다.', phase: 1 },
+    { title: '2. FIFO Memory Queue', body: '과거 Top-K foreground query가 시간축을 따라 층층이 쌓입니다. 오래된 레이어일수록 흐려집니다.', phase: 1, zoom: { pos: [1.2, 2.2, 3.0], target: [-2.2, 0.7, 0] } },
     { title: '3. Ego Transform + MLN', body: '자차가 전진하며 과거 박스가 현재 좌표로 미끄러져 옵니다. 주황 화살표는 v·Δt 보정(MLN)을 나타냅니다.', phase: 2 },
-    { title: '4. Hybrid Attention', body: '현재 쿼리(Q)와 메모리 큐(K/V) 사이 점선이 흐릅니다. 굵고 밝은 선일수록 attention weight가 큽니다.', phase: 3 },
-    { title: '5. 이미지 Cross-Attn', body: '쿼리에서 현재 카메라 frustum·이미지 평면으로 광선이 닿습니다. 과거 이미지는 다시 보지 않습니다.', phase: 4 },
+    { title: '4. Hybrid Attention', body: '현재 쿼리(Q)와 메모리 큐(K/V) 사이 점선이 흐릅니다. 굵고 밝은 선일수록 attention weight가 큽니다.', phase: 3, zoom: { pos: [2.4, 2.0, 3.2], target: [-1.2, 0.7, 0.2] } },
+    { title: '5. 이미지 Cross-Attn', body: '쿼리에서 현재 카메라 frustum·이미지 평면으로 광선이 닿습니다. 과거 이미지는 다시 보지 않습니다.', phase: 4, zoom: { pos: [3.2, 2.1, 2.4], target: [1.2, 0.9, 1.0] } },
     { title: '6. Top-K → 큐 갱신', body: '점수가 높은 박스가 큐 맨 앞으로 올라가고, 가장 오래된 레이어는 빠져나갑니다.', phase: 5 },
   ];
 
@@ -707,16 +925,23 @@ function initStreamPETR() {
     aligned.forEach((a) => { a.u = 0; a.box.position.copy(a.from); });
     ego.position.z = 0;
     egoBaseZ = 0;
+    zoom.clearDetail();
     // sync sticky caption if present
     const cap = root?.querySelector?.('[data-role="sticky-caption"]');
     const stepMeta = steps.find((s) => s.phase === p) || steps[p];
     if (cap && stepMeta) cap.textContent = stepMeta.title.replace(/^\d+\.\s*/, '');
+    if (stepMeta?.zoom) zoom.setDetail(stepMeta.zoom.pos, stepMeta.zoom.target);
     orbit.controls.update();
     renderer.render(scene, camera);
   }
 
   bindLabUI(root, steps, (i) => { applyPhase(steps[i].phase); orbit.easeHome(); }, 'streampetr');
   __labDebug['streampetr'] = { scene, camera, canvas, orbit, renderer };
+  __labZoom['streampetr'] = (step, progress) => {
+    const st = steps[step];
+    if (!st?.zoom) { zoom.scrub(0); return; }
+    zoom.scrub(zoomEnvelope(progress));
+  };
 
   let running = false;
   const io = new IntersectionObserver(([e]) => { running = e.isIntersecting; }, { threshold: 0.12 });
@@ -734,6 +959,7 @@ function initStreamPETR() {
     camera.updateProjectionMatrix();
     orbit.controls.update();
     orbit.setHomeFromCamera();
+    zoom.captureHome();
   }
 
   frameStreet();
@@ -868,112 +1094,186 @@ function initStreamPETR() {
 }
 
 /* ════════════════════════════════════════════
-   Sparse4D v1 — keypoints across T frames
+   Sparse4D v1 — image feature queue + 4D keypoints
    ════════════════════════════════════════════ */
 function initS4Dv1() {
   const canvas = document.getElementById('lab-s4dv1');
   if (!canvas) return;
-  const root = canvas.closest('.method-scrolly') || canvas.closest('.lab');
-  const renderer = makeRenderer(canvas);
-  const scene = new THREE.Scene();
-  const camera = new THREE.PerspectiveCamera(40, 1, 0.1, 100);
-  camera.position.set(4.5, 3.5, 5.5);
-  const orbit = attachOrbit(camera, canvas, new THREE.Vector3(0, 0.8, 0));
-  scene.add(new THREE.AmbientLight(0xffffff, 0.75));
-  const key = new THREE.DirectionalLight(0xffffff, 0.85); key.position.set(2, 4, 3); scene.add(key);
-  scene.add(new THREE.GridHelper(10, 20, 0xb8c0b8, 0xd5dbd4));
+  const home = { pos: [4.2, 3.2, 4.6], target: [-0.4, 0.7, 0.1] };
+  const { root, renderer, scene, camera, orbit, zoom } = bootStreetLab(canvas, { home });
 
-  // T feature frames as vertical stacks of planes
+  const ego = makeCar(0x0e7490);
+  scene.add(ego);
+  const frustumGroup = new THREE.Group();
+  [-1.1, -0.55, 0, 0.55, 1.1, Math.PI].forEach((yaw, i) => {
+    frustumGroup.add(makeFrustumFan(yaw, i === 5 ? 0x7c3aed : 0x0891b2));
+  });
+  scene.add(frustumGroup);
+
+  const traffic = [
+    { car: makeCar(0xdc2626, 1.8, 0.88, 0.52), x: -2.0, z: 4.5, speed: 0.45, phase: 0.3 },
+    { car: makeCar(0x1d4ed8, 2.0, 0.92, 0.58), x: 2.0, z: -3.8, speed: 0.38, phase: 1.4 },
+  ];
+  traffic.forEach((tr) => {
+    tr.car.position.set(tr.x, 0, tr.z);
+    tr.car.traverse((o) => { o.userData.skipFit = true; });
+    scene.add(tr.car);
+  });
+
+  // Past T image-feature stacks (ghost poses along -Z)
   const T = 4;
-  const frames = [];
-  for (let t = 0; t < T; t++) {
+  const pastStacks = [];
+  for (let ti = 0; ti < T; ti++) {
     const g = new THREE.Group();
-    g.position.set(-3 + t * 1.5, 1.2, -1.2);
+    g.position.set(-0.3, 0, -2.2 - ti * 2.0);
+    const ghost = makeCar(0x64748b, 1.9, 0.9, 0.55);
+    ghost.traverse((o) => {
+      if (o.material) {
+        o.material = o.material.clone();
+        o.material.transparent = true;
+        o.material.opacity = 0.25 + ti * 0.08;
+      }
+    });
+    g.add(ghost);
     for (let c = 0; c < 3; c++) {
       const p = new THREE.Mesh(
-        new THREE.PlaneGeometry(1.0, 0.65),
-        new THREE.MeshStandardMaterial({
-          color: 0x38bdf8, emissive: 0x0ea5e9, emissiveIntensity: 0.25,
-          transparent: true, opacity: 0.35 + t * 0.1, side: THREE.DoubleSide
+        new THREE.PlaneGeometry(0.95, 0.6),
+        new THREE.MeshBasicMaterial({
+          map: makePlaceholderTex(200 - ti * 15),
+          transparent: true, opacity: 0.55 + ti * 0.08, side: THREE.DoubleSide
         })
       );
-      p.position.y = (c - 1) * 0.75;
+      p.position.set(1.6, 0.9 + c * 0.55, 0);
+      p.rotation.y = -0.5;
       g.add(p);
     }
+    // label tick
+    const tick = new THREE.Mesh(
+      new THREE.BoxGeometry(0.08, 0.08, 0.08),
+      new THREE.MeshBasicMaterial({ color: 0x0891b2 })
+    );
+    tick.position.set(0, 1.8, 0);
+    g.add(tick);
     scene.add(g);
-    frames.push(g);
+    pastStacks.push(g);
   }
 
-  // Anchor box
-  const anchor = wireBox(1.2, 0.8, 2.0, 0xfbbf24, 0.9);
-  anchor.position.set(1.5, 0.5, 1.2);
+  // Current anchor + 4D keypoints
+  const anchor = makeQueryBox(0xb45309, [1.2, 0.85, 2.0]);
+  anchor.position.set(1.6, 0.02, 1.4);
   scene.add(anchor);
-
-  // Keypoints
-  const kps = [];
   const kpGroup = new THREE.Group();
   scene.add(kpGroup);
-  for (let i = 0; i < 8; i++) {
-    const s = glowSphere(0.08, 0xf472b6);
-    const a = (i / 8) * Math.PI * 2;
-    s.position.set(1.5 + Math.cos(a) * 0.5, 0.5 + Math.sin(a * 2) * 0.25, 1.2 + Math.sin(a) * 0.8);
+  const kps = [];
+  for (let i = 0; i < 10; i++) {
+    const s = glowSphere(0.07, 0xdb2777);
+    const a = (i / 10) * Math.PI * 2;
+    s.position.set(
+      1.6 + Math.cos(a) * 0.45,
+      0.45 + Math.sin(a * 2) * 0.28,
+      1.4 + Math.sin(a) * 0.7
+    );
     kpGroup.add(s);
     kps.push(s);
   }
 
-  // Projection rays to each past frame
-  const rayMat = new THREE.LineBasicMaterial({ color: 0xf472b6, transparent: true, opacity: 0 });
-  const rayPts = [];
-  kps.forEach((kp, i) => {
-    frames.forEach((f, ti) => {
-      if (ti === T - 1 && i > 3) return;
-      rayPts.push(kp.position.clone(), new THREE.Vector3(f.position.x, 1.2, f.position.z));
+  // Projection rays to past planes
+  const rayGroup = new THREE.Group();
+  scene.add(rayGroup);
+  const rayLines = [];
+  kps.forEach((kp, ki) => {
+    pastStacks.forEach((stack, ti) => {
+      if (ti === T - 1 && ki > 4) return;
+      const mat = new THREE.LineDashedMaterial({
+        color: 0xdb2777, transparent: true, opacity: 0.55,
+        dashSize: 0.2, gapSize: 0.1
+      });
+      const geo = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3()]);
+      const line = new THREE.Line(geo, mat);
+      line.computeLineDistances();
+      rayGroup.add(line);
+      rayLines.push({ line, kp, stack, ti });
     });
   });
-  const rays = new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(rayPts), rayMat);
-  scene.add(rays);
+
+  // Sampling pulse markers on planes
+  const sampleGroup = new THREE.Group();
+  scene.add(sampleGroup);
 
   const steps = [
-    { title: '1. 이미지 feature 큐', body: '현재를 포함한 T개 시점의 멀티뷰 feature가 큐에 쌓입니다. Instance 상태가 아니라 이미지를 기억합니다.', phase: 0 },
-    { title: '2. 3D 앵커', body: '각 후보 instance는 3D anchor box로 표현됩니다. 아직 과거 프레임을 보지 않은 상태입니다.', phase: 1 },
-    { title: '3. 4D Keypoints', body: '앵커로부터 고정·학습 keypoints를 생성합니다. 이 점들이 시공간 샘플링의 발판이 됩니다.', phase: 2 },
-    { title: '4. 과거 프레임에 투영', body: 'keypoints를 각 과거 timestamp·카메라 평면에 투영합니다. 각 timestamp·카메라 평면에 투영·샘플링합니다.', phase: 3 },
-    { title: '5. Deformable sampling', body: '투영 위치 주변에서 multi-scale feature를 deformable sampling하고 hierarchy fusion합니다.', phase: 4 },
-    { title: '6. 앵커 정제', body: '모은 feature로 앵커를  refinement합니다. 다음 프레임에서도 instance를 넘기지 않고, feature 큐만 갱신합니다.', phase: 5 }
+    { title: '1. 이미지 feature 큐', body: 'T개 시점의 멀티뷰 feature가 큐에 쌓입니다. Instance가 아니라 이미지를 기억합니다.', phase: 0 },
+    { title: '2. 3D 앵커', body: '후보 instance는 3D anchor box로 표현됩니다.', phase: 1 },
+    { title: '3. 4D Keypoints', body: '앵커 안에서 고정·학습 keypoints가 생깁니다. 시공간 샘플링의 발판입니다.', phase: 2, zoom: { pos: [2.8, 1.6, 3.2], target: [1.6, 0.55, 1.4] } },
+    { title: '4. 과거 프레임에 투영', body: 'keypoints를 각 과거 timestamp·카메라 평면에 투영합니다.', phase: 3 },
+    { title: '5. Deformable sampling', body: '투영 위치 주변 multi-scale feature를 deformable sampling합니다.', phase: 4, zoom: { pos: [0.2, 2.0, -1.5], target: [-0.3, 1.1, -4.0] } },
+    { title: '6. 앵커 정제', body: '모은 feature로 앵커를 정제합니다. Instance는 넘기지 않고 feature 큐만 갱신합니다.', phase: 5 },
   ];
 
+  let phase = 0;
+  let phaseT0 = performance.now();
   function applyPhase(p) {
-    frames.forEach((f, ti) => {
-      f.children.forEach(ch => {
-        ch.material.opacity = p >= 0 ? (0.3 + (ti / T) * 0.4) : 0.15;
-        ch.material.emissiveIntensity = p >= 4 && ti < T - 1 ? 0.7 : 0.25;
+    phase = p;
+    phaseT0 = performance.now();
+    pastStacks.forEach((g, ti) => {
+      g.visible = p >= 0;
+      g.children.forEach((ch) => {
+        if (ch.material && ch.material.opacity !== undefined && ch.type === 'Mesh') {
+          // leave cars/planes
+        }
       });
     });
     anchor.visible = p >= 1;
     kpGroup.visible = p >= 2;
-    rayMat.opacity = p >= 3 ? 0.45 : 0;
-    if (p >= 5) anchor.scale.setScalar(1.08);
-    else anchor.scale.setScalar(1);
+    rayGroup.visible = p >= 3;
+    sampleGroup.visible = p >= 4;
+    const st = steps.find((s) => s.phase === p);
+    zoom.clearDetail();
+    setStreetHome(camera, orbit, zoom, home);
+    if (st?.zoom) zoom.setDetail(st.zoom.pos, st.zoom.target);
+    const cap = root?.querySelector?.('[data-role="sticky-caption"]');
+    if (cap && st) cap.textContent = st.title.replace(/^\d+\.\s*/, '');
+    renderer.render(scene, camera);
   }
 
-    bindLabUI(root, steps, (i) => { applyPhase(steps[i].phase); orbit.easeHome(); }, 's4dv1');
+  bindLabUI(root, steps, (i) => { applyPhase(steps[i].phase); orbit.easeHome(0); zoom.captureHome(); if (steps[i].zoom) zoom.setDetail(steps[i].zoom.pos, steps[i].zoom.target); }, 's4dv1');
   __labDebug['s4dv1'] = { scene, camera, canvas, orbit, renderer };
+  __labZoom['s4dv1'] = (step, progress) => {
+    const st = steps[step];
+    if (!st?.zoom) { zoom.scrub(0); return; }
+    zoom.scrub(zoomEnvelope(progress));
+  };
+
   let running = false;
-  new IntersectionObserver(([e]) => { running = e.isIntersecting; }, { threshold: 0.15 }).observe(canvas);
+  new IntersectionObserver(([e]) => { running = e.isIntersecting; }, { threshold: 0.12 }).observe(canvas);
   fit(renderer, camera, canvas);
-  orbit.fitContent(scene);
-  window.addEventListener('resize', () => {
-    fit(renderer, camera, canvas);
-    orbit.fitContent(scene);
-  });
-  let t0 = performance.now();
+  applyPhase(0);
+  window.addEventListener('resize', () => { fit(renderer, camera, canvas); setStreetHome(camera, orbit, zoom, home); });
+
+  const _a = new THREE.Vector3(), _b = new THREE.Vector3();
   (function frame(now) {
     requestAnimationFrame(frame);
     if (!running) return;
-    const t = (now - t0) / 1000;
-    if (!reduceMotion) {
-      kpGroup.rotation.y = Math.sin(t * 0.5) * 0.05;
-      anchor.rotation.y = Math.sin(t * 0.3) * 0.08;
+    const clock = now * 0.001;
+    const motion = reduceMotion ? 0 : 1;
+    traffic.forEach((tr) => {
+      tr.car.position.z = motion ? ((tr.z + clock * tr.speed * 1.2 + tr.phase * 3) % 14) - 7 : tr.z;
+    });
+    if (phase >= 3) {
+      rayLines.forEach((r) => {
+        r.kp.getWorldPosition(_a);
+        _b.set(r.stack.position.x + 1.6, 1.2, r.stack.position.z);
+        const pos = r.line.geometry.attributes.position;
+        pos.setXYZ(0, _a.x, _a.y, _a.z);
+        pos.setXYZ(1, _b.x, _b.y, _b.z);
+        pos.needsUpdate = true;
+        r.line.computeLineDistances();
+        if (motion) r.line.material.dashOffset = -clock * 1.4;
+      });
+    }
+    if (phase >= 2 && motion) {
+      kps.forEach((s, i) => {
+        s.material.emissiveIntensity = 0.9 + Math.sin(clock * 3 + i) * 0.3;
+      });
     }
     orbit.controls.update();
     renderer.render(scene, camera);
@@ -981,379 +1281,450 @@ function initS4Dv1() {
 }
 
 /* ════════════════════════════════════════════
-   Sparse4D v2 — recurrent instance carry
+   Sparse4D v2 — recurrent instance + current images
    ════════════════════════════════════════════ */
 function initS4Dv2() {
   const canvas = document.getElementById('lab-s4dv2');
   if (!canvas) return;
-  const root = canvas.closest('.method-scrolly') || canvas.closest('.lab');
-  const renderer = makeRenderer(canvas);
-  const scene = new THREE.Scene();
-  const camera = new THREE.PerspectiveCamera(40, 1, 0.1, 100);
-  camera.position.set(0.5, 3.4, 6.5);
-  const orbit = attachOrbit(camera, canvas, new THREE.Vector3(0, 0.6, 0));
-  scene.add(new THREE.AmbientLight(0xffffff, 0.75));
-  const key = new THREE.DirectionalLight(0xffffff, 0.9); key.position.set(3, 5, 2); scene.add(key);
-  scene.add(new THREE.GridHelper(12, 24, 0xb8c0b8, 0xd5dbd4));
+  const home = { pos: [4.0, 3.0, 4.4], target: [-0.2, 0.6, 0.2] };
+  const { root, renderer, scene, camera, orbit, zoom } = bootStreetLab(canvas, { home });
 
-  // Past instances (t-1)
-  const past = new THREE.Group();
-  past.position.set(-2.5, 0.5, 0);
-  scene.add(past);
-  const pastBoxes = [];
-  const colors = [0x6ee7ff, 0xa78bfa, 0x34d399, 0xfbbf24];
+  const ego = makeCar(0x0e7490);
+  scene.add(ego);
+  const frustumGroup = new THREE.Group();
+  [-1.0, -0.5, 0, 0.5, 1.0, Math.PI].forEach((yaw, i) => {
+    frustumGroup.add(makeFrustumFan(yaw, i === 5 ? 0x7c3aed : 0x0891b2));
+  });
+  scene.add(frustumGroup);
+
+  // t-1 instances (left / past)
+  const pastGroup = new THREE.Group();
+  pastGroup.position.set(-3.2, 0, -1.2);
+  scene.add(pastGroup);
+  const pastInst = [];
+  const cols = [0x0891b2, 0x7c3aed, 0x047857, 0xb45309];
   for (let i = 0; i < 4; i++) {
-    const b = wireBox(0.9, 0.6, 1.5, colors[i], 0.7);
-    b.position.set((i % 2) * 1.2, 0, Math.floor(i / 2) * 1.6 - 0.8);
-    past.add(b);
-    const feat = glowSphere(0.12, colors[i]);
-    feat.position.copy(b.position); feat.position.y = 0.55;
-    past.add(feat);
-    pastBoxes.push({ box: b, feat });
+    const box = makeQueryBox(cols[i], [0.95, 0.7, 1.6]);
+    box.position.set((i % 2) * 1.3 - 0.4, 0, Math.floor(i / 2) * 1.7 - 0.6);
+    pastGroup.add(box);
+    pastInst.push(box);
   }
 
-  // Current image only
-  const imgs = new THREE.Group();
-  imgs.position.set(2.8, 1.2, 0);
-  scene.add(imgs);
-  for (let i = 0; i < 4; i++) {
-    const p = new THREE.Mesh(
-      new THREE.PlaneGeometry(0.85, 0.55),
-      new THREE.MeshStandardMaterial({ color: 0x34d399, emissive: 0x14532d, emissiveIntensity: 0.35, side: THREE.DoubleSide, transparent: true, opacity: 0.6 })
-    );
-    p.position.y = (i - 1.5) * 0.6;
-    p.rotation.y = -0.35;
-    imgs.add(p);
-  }
-
-  // Propagated anchors at t
-  const curr = new THREE.Group();
-  curr.position.set(0.3, 0.5, 0);
-  scene.add(curr);
-  const currBoxes = [];
-  for (let i = 0; i < 4; i++) {
-    const b = wireBox(0.9, 0.6, 1.5, colors[i], 0.95);
-    b.position.set((i % 2) * 1.2, 0, Math.floor(i / 2) * 1.6 - 0.8);
-    b.visible = false;
-    curr.add(b);
-    const feat = glowSphere(0.12, colors[i]);
-    feat.position.copy(b.position); feat.position.y = 0.55;
-    feat.visible = false;
-    curr.add(feat);
-    currBoxes.push({ box: b, feat });
-  }
-
-  // New object (single-frame path)
-  const newborn = wireBox(0.8, 0.55, 1.3, 0xf472b6, 0.9);
-  newborn.position.set(1.8, 0.4, -2.2);
-  newborn.visible = false;
-  scene.add(newborn);
+  // Propagated to t (center) via ego + v·Δt
+  const currGroup = new THREE.Group();
+  scene.add(currGroup);
+  const currInst = pastInst.map((p, i) => {
+    const b = makeQueryBox(cols[i], [0.95, 0.7, 1.6]);
+    b.position.set(p.position.x + 2.8, 0, p.position.z + 1.5);
+    currGroup.add(b);
+    return b;
+  });
 
   // Motion arrows
-  const arrowMat = new THREE.LineBasicMaterial({ color: 0x6ee7ff, transparent: true, opacity: 0 });
-  const arrows = new THREE.LineSegments(
-    new THREE.BufferGeometry().setFromPoints([
-      new THREE.Vector3(-2.5, 0.8, 0), new THREE.Vector3(0.3, 0.8, 0)
-    ]),
-    arrowMat
-  );
-  scene.add(arrows);
+  const arrowGroup = new THREE.Group();
+  scene.add(arrowGroup);
+  const arrows = pastInst.map((p, i) => {
+    const dir = new THREE.Vector3(2.8, 0, 1.5).normalize();
+    const ah = new THREE.ArrowHelper(dir, p.position.clone().add(new THREE.Vector3(-3.2, 0.6, -1.2)), 1.6, 0xf59e0b, 0.22, 0.14);
+    arrowGroup.add(ah);
+    return ah;
+  });
 
-  const steps = [
-    { title: '1. 이전 instance', body: 't−1의 anchor와 instance feature Fₜ₋₁이 상태처럼 남습니다. 과거 이미지 feature 큐는 더 이상 없습니다.', phase: 0 },
-    { title: '2. Ego + v·Δt 투영', body: '앵커를 ego motion과 속도 v·Δt로 현재 시각 좌표계에 투영합니다.', phase: 1 },
-    { title: '3. 현재 이미지만 샘플', body: '투영된 앵커에서 현재 프레임 이미지 feature만 deformable sampling합니다.', phase: 2 },
-    { title: '4. Recurrent 갱신', body: 'Fₜ = decode(Fₜ₋₁, 현재 샘플). instance feature가 재귀적으로 이어집니다.', phase: 3 },
-    { title: '5. Single-frame 경로', body: '새로 나타난 객체는 single-frame layer에서 초기화됩니다. 전파된 객체는 multi-frame layer가 담당합니다.', phase: 4 },
-    { title: '6. 부가 모듈', body: 'EDA로 aggregation을 가볍게 하고, camera parameter encoding·dense depth supervision으로 학습을 보강합니다.', phase: 5 }
-  ];
-
-  function applyPhase(p) {
-    arrowMat.opacity = p >= 1 ? 0.7 : 0;
-    currBoxes.forEach(o => {
-      o.box.visible = p >= 1;
-      o.feat.visible = p >= 3;
-    });
-    imgs.children.forEach(c => { c.material.emissiveIntensity = p >= 2 ? 0.7 : 0.25; });
-    newborn.visible = p >= 4;
-    if (p >= 1) {
-      // show motion shift
-      curr.position.x = 0.3;
-    }
+  // Current-only image planes
+  const imgGroup = new THREE.Group();
+  scene.add(imgGroup);
+  for (let i = 0; i < 5; i++) {
+    const yaw = -1.0 + i * 0.5;
+    const plane = new THREE.Mesh(
+      new THREE.PlaneGeometry(1.2, 0.75),
+      new THREE.MeshBasicMaterial({ map: makePlaceholderTex(160 + i * 12), transparent: true, opacity: 0.9, side: THREE.DoubleSide })
+    );
+    plane.position.set(Math.sin(yaw) * 2.3, 0.95, Math.cos(yaw) * 2.3);
+    plane.lookAt(0, 0.95, 0);
+    imgGroup.add(plane);
   }
 
-    bindLabUI(root, steps, (i) => { applyPhase(steps[i].phase); orbit.easeHome(); }, 's4dv2');
-  __labDebug['s4dv2'] = { scene, camera, canvas, orbit, renderer };
-  let running = false;
-  new IntersectionObserver(([e]) => { running = e.isIntersecting; }, { threshold: 0.15 }).observe(canvas);
-  fit(renderer, camera, canvas);
-  orbit.fitContent(scene);
-  window.addEventListener('resize', () => {
-    fit(renderer, camera, canvas);
-    orbit.fitContent(scene);
+  // Newborn single-frame layer
+  const newborn = makeQueryBox(0xdb2777, [0.9, 0.65, 1.5]);
+  newborn.position.set(2.2, 0, -2.4);
+  scene.add(newborn);
+
+  // Sample rays current only
+  const sampleRays = new THREE.Group();
+  scene.add(sampleRays);
+  const sLines = [];
+  currInst.forEach((b, i) => {
+    const plane = imgGroup.children[i % imgGroup.children.length];
+    const mat = new THREE.LineBasicMaterial({ color: 0x047857, transparent: true, opacity: 0.7 });
+    const line = new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3()]), mat);
+    sampleRays.add(line);
+    sLines.push({ line, b, plane });
   });
-  let t0 = performance.now();
+
+  const steps = [
+    { title: '1. 이전 instance', body: 't−1의 anchor와 instance feature가 상태로 남습니다. 과거 이미지 큐는 없습니다.', phase: 0 },
+    { title: '2. Ego + v·Δt 투영', body: '앵커를 ego motion과 속도 v·Δt로 현재 시각 좌표계로 투영합니다.', phase: 1 },
+    { title: '3. 현재 이미지만 샘플', body: '투영된 앵커에서 현재 프레임 이미지 feature만 deformable sampling합니다.', phase: 2, zoom: { pos: [2.8, 2.0, 3.5], target: [1.2, 0.8, 1.0] } },
+    { title: '4. Recurrent 갱신', body: 'Fₜ = decode(Fₜ₋₁, 현재 샘플). instance feature가 재귀적으로 이어집니다.', phase: 3 },
+    { title: '5. Single-frame 경로', body: '새 객체는 single-frame layer에서 초기화되고, 전파 객체는 multi-frame layer가 담당합니다.', phase: 4 },
+    { title: '6. 부가 모듈', body: 'EDA·camera encoding·dense depth supervision이 학습을 보강합니다.', phase: 5 },
+  ];
+
+  let phase = 0;
+  function applyPhase(p) {
+    phase = p;
+    pastGroup.visible = p >= 0;
+    arrowGroup.visible = p === 1;
+    currGroup.visible = p >= 1;
+    imgGroup.visible = p >= 2;
+    sampleRays.visible = p >= 2 && p < 5;
+    newborn.visible = p >= 4;
+    zoom.clearDetail();
+    setStreetHome(camera, orbit, zoom, home);
+    const st = steps.find((s) => s.phase === p);
+    if (st?.zoom) zoom.setDetail(st.zoom.pos, st.zoom.target);
+    const cap = root?.querySelector?.('[data-role="sticky-caption"]');
+    if (cap && st) cap.textContent = st.title.replace(/^\d+\.\s*/, '');
+    renderer.render(scene, camera);
+  }
+
+  bindLabUI(root, steps, (i) => { applyPhase(steps[i].phase); orbit.easeHome(0); zoom.captureHome(); if (steps[i].zoom) zoom.setDetail(steps[i].zoom.pos, steps[i].zoom.target); }, 's4dv2');
+  __labDebug['s4dv2'] = { scene, camera, canvas, orbit, renderer };
+  __labZoom['s4dv2'] = (step, progress) => {
+    const st = steps[step];
+    if (!st?.zoom) { zoom.scrub(0); return; }
+    zoom.scrub(zoomEnvelope(progress));
+  };
+
+  let running = false;
+  new IntersectionObserver(([e]) => { running = e.isIntersecting; }, { threshold: 0.12 }).observe(canvas);
+  fit(renderer, camera, canvas);
+  applyPhase(0);
+  window.addEventListener('resize', () => { fit(renderer, camera, canvas); setStreetHome(camera, orbit, zoom, home); });
+
+  const _a = new THREE.Vector3(), _b = new THREE.Vector3();
   (function frame(now) {
     requestAnimationFrame(frame);
     if (!running) return;
-    const t = (now - t0) / 1000;
-    if (!reduceMotion) {
-      past.position.x = -2.5 + Math.sin(t * 0.5) * 0.05;
-      curr.position.x = 0.3 + Math.sin(t * 0.5) * 0.05;
+    const clock = now * 0.001;
+    const motion = reduceMotion ? 0 : 1;
+    if (phase === 1 && motion) {
+      const u = Math.min(1, ((now % 2000) / 2000));
+      currInst.forEach((b, i) => {
+        const from = pastInst[i].position.clone().add(pastGroup.position);
+        const to = new THREE.Vector3(pastInst[i].position.x + 2.8, 0, pastInst[i].position.z + 1.5);
+        b.position.lerpVectors(from, to, easeInOut(u));
+      });
     }
+    if (phase >= 2) {
+      sLines.forEach((s) => {
+        s.b.getWorldPosition(_a); _a.y += 0.4;
+        s.plane.getWorldPosition(_b);
+        const pos = s.line.geometry.attributes.position;
+        pos.setXYZ(0, _a.x, _a.y, _a.z);
+        pos.setXYZ(1, _b.x, _b.y, _b.z);
+        pos.needsUpdate = true;
+      });
+    }
+    if (motion) ego.rotation.y = Math.sin(clock * 0.3) * 0.06;
     orbit.controls.update();
     renderer.render(scene, camera);
   })(performance.now());
 }
 
 /* ════════════════════════════════════════════
-   Sparse4D v3 — denoising / QE / decoupled
+   Sparse4D v3 — v2 + DN / QE / decoupled attn
    ════════════════════════════════════════════ */
 function initS4Dv3() {
   const canvas = document.getElementById('lab-s4dv3');
   if (!canvas) return;
-  const root = canvas.closest('.method-scrolly') || canvas.closest('.lab');
-  const renderer = makeRenderer(canvas);
-  const scene = new THREE.Scene();
-  const camera = new THREE.PerspectiveCamera(40, 1, 0.1, 100);
-  camera.position.set(0.2, 2.8, 6.2);
-  const orbit = attachOrbit(camera, canvas, new THREE.Vector3(0, 0.8, 0));
-  scene.add(new THREE.AmbientLight(0xffffff, 0.75));
-  const key = new THREE.DirectionalLight(0xffffff, 0.9); key.position.set(3, 4, 3); scene.add(key);
-  scene.add(new THREE.GridHelper(10, 20, 0xb8c0b8, 0xd5dbd4));
+  const home = { pos: [3.9, 3.1, 4.5], target: [-0.3, 0.7, 0.15] };
+  const { root, renderer, scene, camera, orbit, zoom } = bootStreetLab(canvas, { home });
 
-  // GT box vs noisy boxes (denoising)
-  const gt = wireBox(1.2, 0.7, 2.0, 0x34d399, 1);
-  gt.position.set(-1.5, 0.45, 0);
-  scene.add(gt);
-  const noisy = [];
-  for (let i = 0; i < 3; i++) {
-    const b = wireBox(1.2, 0.7, 2.0, 0xfbbf24, 0.7);
-    b.position.set(-1.5 + (Math.random() - 0.5) * 0.8, 0.45, (Math.random() - 0.5) * 0.8);
-    b.rotation.y = (Math.random() - 0.5) * 0.5;
-    b.visible = false;
-    scene.add(b);
-    noisy.push(b);
-  }
+  const ego = makeCar(0x0e7490);
+  scene.add(ego);
+  const frustumGroup = new THREE.Group();
+  [-1.0, -0.5, 0, 0.5, 1.0, Math.PI].forEach((yaw, i) => {
+    frustumGroup.add(makeFrustumFan(yaw, i === 5 ? 0x7c3aed : 0x0891b2));
+  });
+  scene.add(frustumGroup);
 
-  // Quality heads
-  const qeGroup = new THREE.Group();
-  qeGroup.position.set(1.6, 1.0, 0);
-  qeGroup.visible = false;
-  scene.add(qeGroup);
-  const center = glowSphere(0.2, 0x6ee7ff);
-  qeGroup.add(center);
-  const yaw = new THREE.ArrowHelper(new THREE.Vector3(1, 0, 0), new THREE.Vector3(0, 0, 0), 1.2, 0xa78bfa, 0.25, 0.18);
-  qeGroup.add(yaw);
-  const qeBox = wireBox(1.2, 0.7, 2.0, 0x6ee7ff, 0.8);
-  qeBox.position.set(0, -0.55, 0);
-  qeGroup.add(qeBox);
-
-  // Decoupled attention: two bars (feature | anchor) vs summed
-  const dec = new THREE.Group();
-  dec.position.set(0, 1.8, 1.8);
-  dec.visible = false;
-  scene.add(dec);
-  const featBar = new THREE.Mesh(
-    new THREE.BoxGeometry(0.35, 1.0, 0.35),
-    new THREE.MeshStandardMaterial({ color: 0x6ee7ff, emissive: 0x6ee7ff, emissiveIntensity: 0.5 })
-  );
-  featBar.position.x = -0.4;
-  const ancBar = new THREE.Mesh(
-    new THREE.BoxGeometry(0.35, 1.0, 0.35),
-    new THREE.MeshStandardMaterial({ color: 0xa78bfa, emissive: 0xa78bfa, emissiveIntensity: 0.5 })
-  );
-  ancBar.position.x = 0.4;
-  const concatFrame = wireBox(1.4, 1.3, 0.5, 0xffffff, 0.4);
-  dec.add(featBar, ancBar, concatFrame);
-
-  // Inference = v2 badge (recurrent path mini)
+  // Inference path = v2 gray anchors
   const infer = new THREE.Group();
-  infer.position.set(0, 0.5, -2.2);
   scene.add(infer);
   for (let i = 0; i < 3; i++) {
-    const b = wireBox(0.7, 0.45, 1.1, 0x94a3b8, 0.6);
-    b.position.x = (i - 1) * 1.1;
+    const b = makeQueryBox(0x94a3b8, [0.9, 0.65, 1.5]);
+    b.position.set((i - 1) * 1.5, 0, 0.8);
     infer.add(b);
   }
 
+  // Training-only noisy GT
+  const trainGroup = new THREE.Group();
+  scene.add(trainGroup);
+  const noisy = [];
+  const gt = [];
+  for (let i = 0; i < 3; i++) {
+    const g = makeQueryBox(0x047857, [1.0, 0.75, 1.7]);
+    g.position.set((i - 1) * 1.5, 0, -1.2);
+    trainGroup.add(g);
+    gt.push(g);
+    const n = makeQueryBox(0xf59e0b, [1.0, 0.75, 1.7]);
+    n.position.set((i - 1) * 1.5 + 0.25, 0.05, -1.0);
+    trainGroup.add(n);
+    noisy.push(n);
+  }
+  // TRAIN-ONLY badge (sprite-like plane)
+  const badge = new THREE.Mesh(
+    new THREE.PlaneGeometry(1.6, 0.35),
+    new THREE.MeshBasicMaterial({ color: 0xf59e0b, transparent: true, opacity: 0.92, side: THREE.DoubleSide })
+  );
+  badge.position.set(0, 2.1, -1.1);
+  trainGroup.add(badge);
+
+  // Quality estimation badges
+  const qeGroup = new THREE.Group();
+  scene.add(qeGroup);
+  infer.children.forEach((b, i) => {
+    const center = glowSphere(0.12, 0x0891b2);
+    center.position.copy(b.position); center.position.y = 1.15;
+    qeGroup.add(center);
+    const yaw = new THREE.ArrowHelper(new THREE.Vector3(1, 0, 0), b.position.clone().add(new THREE.Vector3(0, 1.0, 0)), 0.7, 0x7c3aed, 0.15, 0.1);
+    qeGroup.add(yaw);
+  });
+
+  // Decoupled attention: two bars (feature | anchor emb) then concat
+  const decGroup = new THREE.Group();
+  decGroup.position.set(0, 1.6, 2.2);
+  scene.add(decGroup);
+  const featBar = new THREE.Mesh(
+    new THREE.BoxGeometry(0.35, 1.1, 0.35),
+    new THREE.MeshStandardMaterial({ color: 0x0891b2, emissive: 0x0891b2, emissiveIntensity: 0.55 })
+  );
+  featBar.position.x = -0.35;
+  const embBar = new THREE.Mesh(
+    new THREE.BoxGeometry(0.35, 1.1, 0.35),
+    new THREE.MeshStandardMaterial({ color: 0x7c3aed, emissive: 0x7c3aed, emissiveIntensity: 0.55 })
+  );
+  embBar.position.x = 0.35;
+  const concat = wireBox(1.1, 1.3, 0.5, 0x0f172a, 0.7);
+  concat.position.set(0, 0, 0);
+  decGroup.add(featBar, embBar, concat);
+  // plus vs concat hint line
+  const plus = new THREE.Mesh(
+    new THREE.BoxGeometry(0.5, 0.06, 0.06),
+    new THREE.MeshBasicMaterial({ color: 0x94a3b8 })
+  );
+  plus.position.set(0, -0.85, 0);
+  decGroup.add(plus);
+
   const steps = [
-    { title: '1. v2와 같은 추론', body: '배포·추론 그래프는 Sparse4D v2의 recurrent pipeline을 그대로 씁니다. 아래 회색 앵커가 그 경로입니다.', phase: 0 },
-    { title: '2. Temporal Instance Denoising', body: '학습 때 GT instance에 noise를 주고(노란 박스) 복원하도록 학습합니다. DN-DETR 계열이며 추론 그래프에는 없습니다.', phase: 1 },
-    { title: '3. 노이즈 → GT 복원', body: '모델이 noisy instance를 초록 GT에 가깝게 되돌리며 temporal association을 더 단단히 배웁니다.', phase: 2 },
-    { title: '4. Quality Estimation', body: 'centerness·yawness 헤드가 로컬화 품질을 예측합니다. 점수 정렬·트래킹에 쓰입니다.', phase: 3 },
-    { title: '5. Decoupled Attention', body: 'instance feature(청록)와 anchor embedding(보라)을 더하지 않고 concat한 뒤 attention합니다. 위치 신호가 특징에 묻히지 않습니다.', phase: 4 },
-    { title: '6. 정리', body: '온디바이스에서는 추론= v2 + (QE 헤드·concat 차원). Denoising은 학습 전용입니다.', phase: 5 }
+    { title: '1. v2와 같은 추론', body: '배포·추론 그래프는 Sparse4D v2 recurrent pipeline을 그대로 씁니다.', phase: 0 },
+    { title: '2. Temporal Instance Denoising', body: '학습 때 GT에 noise를 주고 복원합니다. 추론 그래프에는 없습니다 (TRAIN-ONLY).', phase: 1, zoom: { pos: [2.2, 2.4, 1.2], target: [0, 0.9, -1.1] } },
+    { title: '3. 노이즈 → GT 복원', body: 'noisy instance가 초록 GT에 가깝게 돌아가며 temporal association을 강화합니다.', phase: 2 },
+    { title: '4. Quality Estimation', body: 'centerness·yawness 헤드가 로컬화 품질을 예측합니다.', phase: 3, zoom: { pos: [2.5, 2.2, 2.8], target: [0, 1.0, 0.8] } },
+    { title: '5. Decoupled Attention', body: 'instance feature와 anchor embedding을 더하지 않고 concat한 뒤 attention합니다.', phase: 4, zoom: { pos: [1.6, 2.3, 4.0], target: [0, 1.6, 2.2] } },
+    { title: '6. 정리', body: '온디바이스 추론 = v2 + (QE 헤드·concat 차원). Denoising은 학습 전용입니다.', phase: 5 },
   ];
 
+  let phase = 0;
   function applyPhase(p) {
-    noisy.forEach(b => { b.visible = p >= 1 && p < 3; });
-    if (p >= 2) {
-      noisy.forEach((b, i) => {
-        b.position.lerp(new THREE.Vector3(-1.5, 0.45, 0), 0.4);
-        b.rotation.y *= 0.5;
-      });
-    }
-    if (p >= 3) { noisy.forEach(b => b.visible = false); }
+    phase = p;
+    infer.visible = true;
+    trainGroup.visible = p >= 1 && p < 4;
+    noisy.forEach((n) => { n.visible = p >= 1 && p < 3; });
     qeGroup.visible = p >= 3;
-    dec.visible = p >= 4;
-    infer.children.forEach(c => { c.material.opacity = p === 0 ? 0.85 : 0.35; });
+    decGroup.visible = p >= 4;
+    zoom.clearDetail();
+    setStreetHome(camera, orbit, zoom, home);
+    const st = steps.find((s) => s.phase === p);
+    if (st?.zoom) zoom.setDetail(st.zoom.pos, st.zoom.target);
+    const cap = root?.querySelector?.('[data-role="sticky-caption"]');
+    if (cap && st) cap.textContent = st.title.replace(/^\d+\.\s*/, '');
+    renderer.render(scene, camera);
   }
 
-    bindLabUI(root, steps, (i) => { applyPhase(steps[i].phase); orbit.easeHome(); }, 's4dv3');
+  bindLabUI(root, steps, (i) => { applyPhase(steps[i].phase); orbit.easeHome(0); zoom.captureHome(); if (steps[i].zoom) zoom.setDetail(steps[i].zoom.pos, steps[i].zoom.target); }, 's4dv3');
   __labDebug['s4dv3'] = { scene, camera, canvas, orbit, renderer };
+  __labZoom['s4dv3'] = (step, progress) => {
+    const st = steps[step];
+    if (!st?.zoom) { zoom.scrub(0); return; }
+    zoom.scrub(zoomEnvelope(progress));
+  };
+
   let running = false;
-  new IntersectionObserver(([e]) => { running = e.isIntersecting; }, { threshold: 0.15 }).observe(canvas);
+  new IntersectionObserver(([e]) => { running = e.isIntersecting; }, { threshold: 0.12 }).observe(canvas);
   fit(renderer, camera, canvas);
-  orbit.fitContent(scene);
-  window.addEventListener('resize', () => {
-    fit(renderer, camera, canvas);
-    orbit.fitContent(scene);
-  });
-  let t0 = performance.now();
+  applyPhase(0);
+  window.addEventListener('resize', () => { fit(renderer, camera, canvas); setStreetHome(camera, orbit, zoom, home); });
+
   (function frame(now) {
     requestAnimationFrame(frame);
     if (!running) return;
-    const t = (now - t0) / 1000;
-    if (!reduceMotion) {
-      qeGroup.rotation.y = t * 0.4;
-      dec.rotation.y = Math.sin(t * 0.6) * 0.15;
+    const clock = now * 0.001;
+    const motion = reduceMotion ? 0 : 1;
+    if (phase === 2 && motion) {
+      noisy.forEach((n, i) => {
+        n.position.lerp(gt[i].position, 0.03);
+      });
     }
+    if (phase >= 4 && motion) {
+      featBar.position.y = Math.sin(clock * 2) * 0.05;
+      embBar.position.y = Math.sin(clock * 2 + 1) * 0.05;
+    }
+    if (motion) ego.rotation.y = Math.sin(clock * 0.25) * 0.05;
     orbit.controls.update();
     renderer.render(scene, camera);
   })(performance.now());
 }
 
-
 /* ════════════════════════════════════════════
-   Foundation4D — scene tokens + factorized attn
+   Foundation4D — scene tokens + multi-head
    ════════════════════════════════════════════ */
 function initF4D() {
   const canvas = document.getElementById('lab-f4d');
   if (!canvas) return;
-  const root = canvas.closest('.method-scrolly') || canvas.closest('.lab');
-  const renderer = makeRenderer(canvas);
-  const scene = new THREE.Scene();
-  const camera = new THREE.PerspectiveCamera(40, 1, 0.1, 120);
-  camera.position.set(0.4, 4.2, 8.5);
-  const orbit = attachOrbit(camera, canvas, new THREE.Vector3(0, 1.0, 0));
-  scene.add(new THREE.AmbientLight(0xffffff, 0.75));
-  const key = new THREE.DirectionalLight(0xffffff, 0.95); key.position.set(4, 6, 3); scene.add(key);
-  scene.add(new THREE.GridHelper(16, 32, 0xb8c0b8, 0xd5dbd4));
+  const home = { pos: [5.0, 3.6, 5.5], target: [0, 1.0, 0] };
+  const { root, renderer, scene, camera, orbit, zoom } = bootStreetLab(canvas, { home });
 
-  const egoMat = new THREE.MeshStandardMaterial({ color: 0x1a2438, metalness: 0.55, roughness: 0.35, emissive: 0x0a2030, emissiveIntensity: 0.35 });
-  const ego = new THREE.Mesh(new THREE.BoxGeometry(1.1, 0.35, 2.2), egoMat);
-  ego.position.y = 0.2;
+  const ego = makeCar(0x0e7490, 2.0, 0.95, 0.58);
   scene.add(ego);
+  const frustumGroup = new THREE.Group();
+  const yaws = [-1.15, -0.55, 0, 0.55, 1.15, Math.PI];
+  yaws.forEach((yaw, i) => frustumGroup.add(makeFrustumFan(yaw, i === 5 ? 0x7c3aed : 0x0891b2)));
+  scene.add(frustumGroup);
 
-  const frust = new THREE.Group();
-  scene.add(frust);
-  const yaws = [-1.2, -0.55, 0, 0.55, 1.2, Math.PI];
+  // Multi-cam video strips
+  const camGroup = new THREE.Group();
+  scene.add(camGroup);
   yaws.forEach((yaw, i) => {
-    const g = new THREE.Group();
-    const mat = new THREE.LineBasicMaterial({ color: i === 5 ? 0xa78bfa : 0x6ee7ff, transparent: true, opacity: 0.55 });
-    const near = 0.2, far = 2.2, nw = 0.2, fw = 1.0, nh = 0.12, fh = 0.55;
-    const pts = [
-      [-nw,-nh,near],[nw,-nh,near],[nw,nh,near],[-nw,nh,near],[-nw,-nh,near],
-      [-nw,-nh,near],[-fw,-fh,far],[nw,-nh,near],[fw,-fh,far],[nw,nh,near],[fw,fh,far],[-nw,nh,near],[-fw,fh,far],
-      [-fw,-fh,far],[fw,-fh,far],[fw,fh,far],[-fw,fh,far],[-fw,-fh,far]
-    ].map(p => new THREE.Vector3(...p));
-    g.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), mat));
-    g.rotation.y = yaw;
-    g.position.y = 0.55;
-    frust.add(g);
+    const p = new THREE.Mesh(
+      new THREE.PlaneGeometry(1.15, 0.7),
+      new THREE.MeshBasicMaterial({ map: makePlaceholderTex(180 + i * 14), transparent: true, opacity: 0.9, side: THREE.DoubleSide })
+    );
+    p.position.set(Math.sin(yaw) * 2.5, 1.0, Math.cos(yaw) * 2.5);
+    p.lookAt(0, 1.0, 0);
+    camGroup.add(p);
   });
+
+  // Factorized attention rings (view / time)
+  const attnGroup = new THREE.Group();
+  scene.add(attnGroup);
+  const viewRing = new THREE.Mesh(
+    new THREE.TorusGeometry(2.6, 0.03, 8, 48),
+    new THREE.MeshBasicMaterial({ color: 0x0891b2, transparent: true, opacity: 0.55 })
+  );
+  viewRing.rotation.x = Math.PI / 2;
+  viewRing.position.y = 1.0;
+  const timeRing = new THREE.Mesh(
+    new THREE.TorusGeometry(1.8, 0.03, 8, 48),
+    new THREE.MeshBasicMaterial({ color: 0x7c3aed, transparent: true, opacity: 0.55 })
+  );
+  timeRing.position.set(0, 1.2, 0);
+  attnGroup.add(viewRing, timeRing);
 
   // Scene token lattice
   const tokens = new THREE.Group();
-  tokens.position.set(0, 0.9, 0);
+  tokens.position.set(0, 1.1, 0);
   scene.add(tokens);
   const tokenMeshes = [];
-  const tMat = new THREE.MeshStandardMaterial({ color: 0xa78bfa, emissive: 0xa78bfa, emissiveIntensity: 0.4, transparent: true, opacity: 0.35 });
-  for (let x = -3; x <= 3; x++) {
-    for (let z = -3; z <= 3; z++) {
+  for (let x = -2; x <= 2; x++) {
+    for (let z = -2; z <= 2; z++) {
       for (let y = 0; y <= 2; y++) {
         if ((x + z + y) % 2) continue;
-        const m = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.22, 0.22), tMat.clone());
-        m.position.set(x * 0.55, y * 0.45, z * 0.55);
-        m.visible = false;
+        const m = new THREE.Mesh(
+          new THREE.BoxGeometry(0.22, 0.22, 0.22),
+          new THREE.MeshStandardMaterial({
+            color: 0x7c3aed, emissive: 0x7c3aed, emissiveIntensity: 0.4,
+            transparent: true, opacity: 0.45
+          })
+        );
+        m.position.set(x * 0.5, y * 0.42, z * 0.5);
         tokens.add(m);
         tokenMeshes.push(m);
       }
     }
   }
 
-  // Heads as colored panels
+  // Multi heads
   const heads = new THREE.Group();
-  heads.position.set(0, 2.6, 0);
-  heads.visible = false;
+  heads.position.set(0, 2.7, 0);
   scene.add(heads);
-  const headCols = [0x6ee7ff, 0x34d399, 0xfbbf24, 0xf472b6];
-  const headLabels = ['Geo', 'Det', 'Occ', 'Gauss'];
+  const headCols = [0x0891b2, 0x047857, 0xb45309, 0xdb2777];
+  const headNames = ['Geom', 'Det', 'Occ', 'Gauss'];
   headCols.forEach((c, i) => {
     const p = new THREE.Mesh(
-      new THREE.PlaneGeometry(1.1, 0.55),
-      new THREE.MeshStandardMaterial({ color: c, emissive: c, emissiveIntensity: 0.35, side: THREE.DoubleSide, transparent: true, opacity: 0.75 })
+      new THREE.PlaneGeometry(1.15, 0.5),
+      new THREE.MeshStandardMaterial({ color: c, emissive: c, emissiveIntensity: 0.4, side: THREE.DoubleSide, transparent: true, opacity: 0.8 })
     );
-    p.position.x = (i - 1.5) * 1.3;
+    p.position.set((i - 1.5) * 1.35, 0, 0);
     heads.add(p);
   });
 
-  // Detection boxes
+  // Detection boxes from scene tokens
   const detGroup = new THREE.Group();
-  detGroup.visible = false;
   scene.add(detGroup);
-  [[-2, 0.4, 2], [2.2, 0.4, 1.2], [0.5, 0.45, -2.5]].forEach((pos, i) => {
-    const b = wireBox(1.0, 0.7, 1.8, 0x6ee7ff, 0.85);
+  [[-1.8, 0, 2.2], [2.0, 0, 1.5], [-0.5, 0, -2.5]].forEach((pos) => {
+    const b = makeQueryBox(0x0891b2, [1.0, 0.7, 1.7]);
     b.position.set(...pos);
     detGroup.add(b);
   });
 
   const steps = [
-    { title: '1. 멀티 카메라 입력', body: 'C대 카메라 × T 시점 영상이 들어옵니다. 각 이미지는 촬영 시각을 가져 비동기 입력도 표현할 수 있습니다.', phase: 0 },
-    { title: '2. Factorized attention', body: '이미지 내부 attention 후, 같은 시점의 카메라 간(view) 또는 같은 카메라의 시간축(time) attention을 번갈아 적용합니다.', phase: 1 },
-    { title: '3. Scene tokens', body: '장면 전체를 표현하는 scene token 격자가 형성됩니다. Sparse object query가 아니라 dense-ish 장면 표현입니다.', phase: 2 },
+    { title: '1. 멀티 카메라 입력', body: 'C대 카메라 × T 시점 영상이 들어옵니다. 비동기 입력도 표현할 수 있습니다.', phase: 0 },
+    { title: '2. Factorized attention', body: '이미지 내부 이후 view/time attention을 번갈아 적용합니다.', phase: 1, zoom: { pos: [3.2, 2.8, 3.5], target: [0, 1.1, 0] } },
+    { title: '3. Scene tokens', body: '장면 전체를 표현하는 scene token 격자가 형성됩니다.', phase: 2, zoom: { pos: [2.4, 2.6, 2.8], target: [0, 1.2, 0] } },
     { title: '4. 멀티 헤드 디코더', body: '공유 토큰에서 Geometry · Detection · Occupancy · Gaussian 헤드가 갈라집니다.', phase: 3 },
     { title: '5. 3D 검출·점유', body: '검출 박스와 occupancy가 장면 토큰 위에서 동시에 읽힙니다.', phase: 4 },
-    { title: '6. Video 추론', body: '윈도우 출력을 pose graph로 정렬하고 객체 트랙을 이어 긴 주행 클립을 처리합니다.', phase: 5 },
+    { title: '6. Video 추론', body: '윈도우 출력을 pose graph로 정렬하고 객체 트랙을 이어 긴 클립을 처리합니다.', phase: 5 },
   ];
 
+  let phase = 0;
   function applyPhase(p) {
-    frust.visible = true;
-    frust.children.forEach(ch => {
-      ch.children[0].material.opacity = p >= 1 ? 0.85 : 0.4;
-    });
-    tokenMeshes.forEach((m, i) => {
-      m.visible = p >= 2;
-      m.material.opacity = p >= 2 ? 0.25 + (i % 5) * 0.08 : 0;
-      m.material.emissiveIntensity = p >= 2 ? 0.55 : 0.2;
-    });
+    phase = p;
+    camGroup.visible = true;
+    attnGroup.visible = p >= 1;
+    tokens.visible = p >= 2;
+    tokenMeshes.forEach((m) => { m.visible = p >= 2; m.material.opacity = p >= 2 ? 0.55 : 0.2; });
     heads.visible = p >= 3;
     detGroup.visible = p >= 4;
-    if (p >= 5) {
-      tokens.rotation.y = 0.25;
-    }
+    zoom.clearDetail();
+    setStreetHome(camera, orbit, zoom, home);
+    const st = steps.find((s) => s.phase === p);
+    if (st?.zoom) zoom.setDetail(st.zoom.pos, st.zoom.target);
+    const cap = root?.querySelector?.('[data-role="sticky-caption"]');
+    if (cap && st) cap.textContent = st.title.replace(/^\d+\.\s*/, '');
+    renderer.render(scene, camera);
   }
 
-    bindLabUI(root, steps, (i) => { applyPhase(steps[i].phase); orbit.easeHome(); }, 'f4d');
+  bindLabUI(root, steps, (i) => { applyPhase(steps[i].phase); orbit.easeHome(0); zoom.captureHome(); if (steps[i].zoom) zoom.setDetail(steps[i].zoom.pos, steps[i].zoom.target); }, 'f4d');
   __labDebug['f4d'] = { scene, camera, canvas, orbit, renderer };
+  __labZoom['f4d'] = (step, progress) => {
+    const st = steps[step];
+    if (!st?.zoom) { zoom.scrub(0); return; }
+    zoom.scrub(zoomEnvelope(progress));
+  };
+
   let running = false;
-  new IntersectionObserver(([e]) => { running = e.isIntersecting; }, { threshold: 0.15 }).observe(canvas);
+  new IntersectionObserver(([e]) => { running = e.isIntersecting; }, { threshold: 0.12 }).observe(canvas);
   fit(renderer, camera, canvas);
-  orbit.fitContent(scene);
-  window.addEventListener('resize', () => {
-    fit(renderer, camera, canvas);
-    orbit.fitContent(scene);
-  });
-  let t0 = performance.now();
+  applyPhase(0);
+  window.addEventListener('resize', () => { fit(renderer, camera, canvas); setStreetHome(camera, orbit, zoom, home); });
+
   (function frame(now) {
     requestAnimationFrame(frame);
     if (!running) return;
-    const t = (now - t0) / 1000;
-    if (!reduceMotion) {
-      ego.rotation.y = Math.sin(t * 0.35) * 0.1;
-      frust.rotation.y = ego.rotation.y;
-      tokens.rotation.y = t * 0.08;
+    const clock = now * 0.001;
+    const motion = reduceMotion ? 0 : 1;
+    if (motion) {
+      tokens.rotation.y = clock * 0.12;
+      if (phase >= 1) {
+        viewRing.rotation.z = clock * 0.4;
+        timeRing.rotation.y = clock * 0.55;
+      }
+      tokenMeshes.forEach((m, i) => {
+        m.material.emissiveIntensity = 0.35 + Math.sin(clock * 2 + i) * 0.2;
+      });
+      ego.rotation.y = Math.sin(clock * 0.25) * 0.06;
     }
     orbit.controls.update();
     renderer.render(scene, camera);

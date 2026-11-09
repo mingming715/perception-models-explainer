@@ -37,7 +37,6 @@ export function initProgress() {
 
     let current = secs[0]?.id || null;
     for (const s of secs) {
-      // use document Y (offsetTop is relative to offsetParent and breaks nesting)
       const top = s.el.getBoundingClientRect().top + window.scrollY;
       if (top <= focusY + 8) current = s.id;
     }
@@ -46,7 +45,6 @@ export function initProgress() {
 
   window.addEventListener('scroll', sync, { passive: true });
   window.addEventListener('resize', sync);
-  // sections render async; sync a few times after load
   sync();
   requestAnimationFrame(sync);
   setTimeout(sync, 300);
@@ -68,7 +66,13 @@ export function initMethodScrolly() {
       window.dispatchEvent(new CustomEvent('lab:step', { detail: { lab, step: i } }));
     }
 
-    if (reduce) { setStep(0); return; }
+    function emitProgress(i, progress) {
+      window.dispatchEvent(new CustomEvent('lab:progress', {
+        detail: { lab, step: i, progress: Math.min(1, Math.max(0, progress)) }
+      }));
+    }
+
+    if (reduce) { setStep(0); emitProgress(0, 0); return; }
 
     const onScroll = () => {
       let best = null, bestScore = -Infinity;
@@ -81,10 +85,17 @@ export function initMethodScrolly() {
           bestScore = score; best = s;
         }
       });
-      if (best) setStep(Number(best.dataset.step));
+      if (!best) return;
+      const i = Number(best.dataset.step);
+      setStep(i);
+      const r = best.getBoundingClientRect();
+      // 0 when step top hits mid, 1 when step bottom hits mid
+      const progress = (mid - r.top) / Math.max(r.height, 1);
+      emitProgress(i, progress);
     };
     window.addEventListener('scroll', onScroll, { passive: true });
     setStep(0);
+    emitProgress(0, 0);
   });
 }
 

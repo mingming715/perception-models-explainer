@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>차세대 인지 모델 해설 · Sparse Query &amp; Scene Token</title>
+<meta name="description" content="StreamPETR · Sparse4D v1/v2/v3 · Foundation4D — 스크롤로 읽는 한국어 method/experiment 해설">
+<link rel="preconnect" href="https://cdn.jsdelivr.net">
+<link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+<link rel="stylesheet" href="css/main.css">
+<script type="importmap">
+{"imports":{
+  "three":"https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+  "three/addons/":"https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+}}
+</script>
+</head>
+<body>
+<a class="skip" href="#main">본문으로 건너뛰기</a>
+
+<header class="topnav" id="topnav">
+  <a class="brand" href="#hero" aria-label="홈">
+    <span class="brand-mark" aria-hidden="true"></span>
+    <span class="brand-text">Perception Explainer</span>
+  </a>
+  <nav class="tabs" aria-label="계열"></nav>
+  <div class="nav-spacer" aria-hidden="true"></div>
+</header>
+<div class="mega" id="mega" hidden role="menu" aria-label="논문 목록"></div>
+
+<section class="hero" id="hero" aria-label="히어로">
+  <canvas id="hero-canvas" aria-hidden="true"></canvas>
+  <div class="hero-veil" aria-hidden="true"></div>
+  <div class="hero-copy">
+    <p class="eyebrow">CTO · 차세대 인지 모델 · 한국어 해설</p>
+    <h1>
+      <span class="line">Sparse Query</span>
+      <span class="amp">&amp;</span>
+      <span class="line accent">Scene Token</span>
+    </h1>
+    <p class="lede">
+      StreamPETR · Sparse4D v1–v3 · Foundation4D.<br>
+      스크롤하며 개요 → Method → Experiment → 정리를 읽습니다.
+    </p>
+    <div class="hero-cta">
+      <a class="btn primary" href="#stream-petr">Sparse Query부터</a>
+      <a class="btn ghost" href="#foundation4d">Foundation4D 보기</a>
+    </div>
+    <ul class="hero-meta">
+      <li><span>4</span> Sparse Query 논문</li>
+      <li><span>1</span> Scene Token 논문</li>
+      <li><span>5</span> Method 해설</li>
+    </ul>
+  </div>
+  <div class="hero-scroll" aria-hidden="true"><span>스크롤</span><i></i></div>
+</section>
+
+<main id="main">
+  <div id="papers-root"></div>
+
+  <section class="model" id="compare">
+    <div class="wrap">
+      <header class="model-head">
+        <p class="tag" style="color:var(--acc);font-size:12px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;margin:0 0 10px">비교</p>
+        <h2>시간 정보를 이어받는 방식</h2>
+        <p class="lede">Sparse Query 네 논문이 “무엇을 메모리에 남기는가”가 다릅니다. (원문 method 기준)</p>
+      </header>
+      <table class="compare-table">
+        <thead>
+          <tr>
+            <th>항목</th>
+            <th>StreamPETR</th>
+            <th>Sparse4D v1</th>
+            <th>Sparse4D v2</th>
+            <th>Sparse4D v3</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>시간 상태</td>
+            <td>Top-K object query FIFO 큐</td>
+            <td>Image feature queue (T frames)</td>
+            <td>Instance feature + anchor (recurrent)</td>
+            <td>v2와 동일 (추론)</td>
+          </tr>
+          <tr>
+            <td>현재 외에 보는 것</td>
+            <td>메모리 쿼리 (+ 현재 이미지만)</td>
+            <td>과거 T프레임 이미지 feature</td>
+            <td>이전 instance 상태 (+ 현재 이미지만)</td>
+            <td>v2와 동일</td>
+          </tr>
+          <tr>
+            <td>시간 메모리 형태</td>
+            <td>고정 크기 query 큐</td>
+            <td>길이 T인 image feature 큐</td>
+            <td>Instance 상태 1프레임</td>
+            <td>v2와 동일</td>
+          </tr>
+          <tr>
+            <td>모션 정렬</td>
+            <td>Ego Transform + MLN(E,v,Δt)</td>
+            <td>Keypoint를 각 timestamp에 투영</td>
+            <td>Ego motion + v·Δt로 앵커 투영</td>
+            <td>v2와 동일</td>
+          </tr>
+          <tr>
+            <td>추가 기여</td>
+            <td>Hybrid attention, object-centric</td>
+            <td>Deformable 4D aggregation</td>
+            <td>EDA, cam encoding, dense depth</td>
+            <td>TID(train), QE, Decoupled Attn</td>
+          </tr>
+        </tbody>
+      </table>
+      <div class="card" style="margin-top:18px">
+        <h3>한 줄로</h3>
+        <p><b>v1</b>은 과거 이미지를 다시 샘플링하고, <b>StreamPETR / v2 / v3</b>는 sparse instance·query 상태를 재귀적으로 넘깁니다. v3는 그 추론 경로를 유지한 채 학습·attention 구조를 다듬은 버전입니다.</p>
+        <p style="margin-top:10px"><b>Foundation4D</b>(Scene Token)는 객체 query가 아니라 장면 토큰으로 geometry·occupancy·Gaussian까지 함께 추정하는 다른 축입니다. <a href="#foundation4d">해설로 이동</a></p>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer class="site-foot">
+  <div class="wrap">
+    <p>논문 원문(arXiv) method·표를 옮긴 학습용 해설입니다. 실험 수치는 각 논문 Table을 인용했으며 창작하지 않았습니다. 원 논문은 동기화된 멀티 카메라 프레임을 가정합니다.</p>
+    <p class="small">Repo · <a href="https://github.com/mingming715/perception-models-explainer">mingming715/perception-models-explainer</a> · Figures © 각 논문 저자 (교육 목적 인용)</p>
+  </div>
+</footer>
+
+<script type="module" src="js/main.js"></script>
+</body>
+</html>

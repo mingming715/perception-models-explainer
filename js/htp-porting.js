@@ -1,6 +1,8 @@
-/** "04 HTP 포팅 난이도" section for Sparse4D v2 / v3 only.
+/** "04 HTP 포팅 난이도" section for Sparse4D v2 / v3 and StreamPETR (StreamPETR content: htp-streampetr.js).
  *  Facts and numbers come from the vault note "Sparse4D HTP 포팅 난이도 분석" (QNN docs, 2026-11-09 게시본).
  *  Items the note marks as 추정 keep that mark here. No latency numbers. Styling: css/main.css (.htp-*). */
+
+import { spRows, spCards, spDiagram, SP_LEAD, SP_CAPTION, SP_FOOT, SP_NOTES } from './htp-streampetr.js';
 
 const ANALYSIS_URL = 'https://cursor.com/canvas/store-5bf4aedf-7868-449e-adf6-6140f72b2dc7/437944e9-0a6c-425b-b220-fadc3d5de36b';
 
@@ -268,21 +270,21 @@ function diagram(v3) {
 
 /* ── HTML ── */
 const dotHTML = (lv, s) => `<span class="htp-cell"><i class="htp-dot lv-${lv}" aria-label="${LV[lv]}"></i><span>${s}</span></span>`;
-function tableHTML(v3) {
+function tableHTML(list) {
   const head = ['블록', '메모리(DDR·VTCM)', '양자화', '고정 shape', '비표준 연산', '종합', '포팅 전략'];
-  const body = rows(v3).map((r) => `<tr data-htp="${r.id}" tabindex="0">
+  const body = list.map((r) => `<tr data-htp="${r.id}" tabindex="0">
       <th scope="row"><b>${r.name}</b><small>${r.sub}</small></th>
       ${r.cells.map(([lv, s]) => `<td>${dotHTML(lv, s)}</td>`).join('')}
-      <td><span class="htp-pill lv-${r.overall}">${r.overallText || LV[r.overall]}</span></td>
+      <td><span class="htp-pill lv-${r.overall}">${r.overallText || LV[r.overall]}</span>${r.note ? `<small class="htp-pill-note">${r.note}</small>` : ''}</td>
       <td class="htp-strat">${r.strategy}</td>
     </tr>`).join('');
   return `<div class="htp-table-wrap reveal"><table class="htp-table">
     <thead><tr>${head.map((h) => `<th scope="col">${h}</th>`).join('')}</tr></thead>
     <tbody>${body}</tbody></table></div>`;
 }
-function cardsHTML(v3) {
+function cardsHTML(list) {
   return `<h3 class="htp-h3 reveal">포팅할 때 고쳐야 하거나 고려할 어려움</h3>
-  <div class="htp-cards">${cards(v3).map((c) => `
+  <div class="htp-cards">${list.map((c) => `
     <article class="htp-card reveal" data-htp="${c.block}">
       <div class="htp-badges">${c.badges.map((b) => `<span class="htp-badge b-${BADGE[b][1]}">${BADGE[b][0]}</span>`).join('')}${c.v3 ? '<span class="htp-badge b-v3">v3</span>' : ''}</div>
       <h4>${c.title}</h4>
@@ -294,9 +296,10 @@ function cardsHTML(v3) {
   </div>`;
 }
 
-export const HTP_PAPERS = new Set(['sparse4d-v2', 'sparse4d-v3']);
+export const HTP_PAPERS = new Set(['stream-petr', 'sparse4d-v2', 'sparse4d-v3']);
 
 export function htpSectionHTML(id, num) {
+  if (id === 'stream-petr') return spSectionHTML(id, num);
   const v3 = id === 'sparse4d-v3';
   const lead = v3
     ? 'SA8650P HTP(v73)에 올릴 때 블록별로 메모리(DDR·VTCM), 양자화, 고정 shape, 비표준 연산을 따져 본 결과입니다. v3 추론 그래프는 v2와 거의 같고, 추가분은 작은 quality MLP와 512차원 decoupled attention뿐입니다. anchor 900개, keypoint 13개, 캐시 600개가 모두 고정이라 정적 그래프로 내보낼 수 있습니다.'
@@ -309,9 +312,26 @@ export function htpSectionHTML(id, num) {
       <div class="htp-scroll">${diagram(v3)}</div>
       <figcaption>블록 색 = 아래 표의 종합 난이도. 종합은 네 축 중 가장 어려운 축을 기본으로 하되, 분석 노트의 블록별 판정과 같게 맞췄습니다(CPU로 보내면 풀리는 후처리의 동적 shape는 낮춤).</figcaption>
     </figure>
-    ${tableHTML(v3)}
+    ${tableHTML(rows(v3))}
     <p class="htp-foot reveal">학습 전용 블록(${v3 ? 'v3 temporal instance denoising, ' : ''}dense depth 분기)은 추론 그래프에서 제거합니다. <a href="${ANALYSIS_URL}" target="_blank" rel="noopener">전체 분석 페이지 ↗</a></p>
-    ${cardsHTML(v3)}
+    ${cardsHTML(cards(v3))}
+  </section>`;
+}
+
+/* StreamPETR */
+function spSectionHTML(id, num) {
+  return `
+  <section class="paper-sec htp-sec" id="${id}-htp" data-sec="htp">
+    <h2 class="sec-title reveal"><span>${num}</span> HTP 포팅 난이도</h2>
+    <p class="reveal prose-lead">${SP_LEAD}</p>
+    <figure class="htp-fig reveal">
+      <div class="htp-scroll">${spDiagram(block, COL)}</div>
+      <figcaption>${SP_CAPTION}</figcaption>
+    </figure>
+    ${tableHTML(spRows())}
+    <p class="htp-foot reveal">${SP_FOOT}</p>
+    ${cardsHTML(spCards())}
+    <ul class="htp-notes reveal">${SP_NOTES.map((n) => `<li>${n}</li>`).join('')}</ul>
   </section>`;
 }
 

@@ -743,3 +743,9 @@ svg.htp-svg{ display:block; width:100%; min-width:900px; height:auto; font-famil
 }
 .paper-sec.htp-sec{ max-width:1240px; padding-left:4vw; padding-right:4vw; }
 .paper-sec.htp-sec > .sec-title, .paper-sec.htp-sec > .prose-lead{ max-width:1180px; }
+/* StreamPETR HTP additions */
+.htp-svg .htp-pe-arrow{ fill:none; stroke:var(--acc); stroke-width:1.8; }
+.htp-svg .htp-pe-t{ font-size:12px; font-weight:600; fill:var(--acc); }
+.htp-pill-note{ display:block; margin-top:6px; font-size:11.5px; line-height:1.5; color:var(--mut); }
+.htp-notes{ margin:26px 0 0; padding:18px 22px 18px 38px; border:1px solid var(--line); border-radius:14px; background:var(--pan); font-size:14px; line-height:1.75; color:var(--tx); }
+.htp-notes li + li{ margin-top:8px; }

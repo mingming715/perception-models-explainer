@@ -749,3 +749,22 @@ svg.htp-svg{ display:block; width:100%; min-width:900px; height:auto; font-famil
 .htp-pill-note{ display:block; margin-top:6px; font-size:11.5px; line-height:1.5; color:var(--mut); }
 .htp-notes{ margin:26px 0 0; padding:18px 22px 18px 38px; border:1px solid var(--line); border-radius:14px; background:var(--pan); font-size:14px; line-height:1.75; color:var(--tx); }
 .htp-notes li + li{ margin-top:8px; }
+
+/* Horizontal scroll containers + cue (js/scroll-cue.js). Only visible when content overflows. */
+@media (max-width: 1100px){
+  .exp-scroll{ overflow-x:auto; -webkit-overflow-scrolling:touch; border-radius:10px; box-shadow:var(--shadow); }
+  .exp-scroll .exp-table{ box-shadow:none; }
+}
+.xscroll-cue{ position:relative; }
+.xscroll-cue.can-scroll::before{
+  content:'← 옆으로 스크롤 →'; display:block; margin:0 2px 6px; text-align:right;
+  font-size:11.5px; letter-spacing:.02em; color:var(--mut);
+}
+.xscroll-cue::after{
+  content:''; position:absolute; right:1px; bottom:1px; top:24px; width:34px; pointer-events:none;
+  border-radius:0 12px 12px 0; opacity:0; transition:opacity .2s;
+  background:linear-gradient(to right, rgba(255,255,255,0), var(--pan) 85%);
+}
+.xscroll-cue.can-scroll::after{ opacity:1; }
+.xscroll-cue.can-scroll.at-end::after{ opacity:0; }
+@media (prefers-reduced-motion: reduce){ .xscroll-cue::after{ transition:none; } }

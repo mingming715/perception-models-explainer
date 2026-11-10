@@ -1,6 +1,7 @@
 import { PAPERS, PAPER_ORDER } from './papers-data.js';
 import { RELATED_FIGS } from './related-figs.js';
 import { HTP_PAPERS, htpSectionHTML, initHtpLinks } from './htp-porting.js';
+import { initScrollCues } from './scroll-cue.js';
 
 const SEC_LABELS = [
   { id: 'overview', label: '개요' },
@@ -26,12 +27,12 @@ function tableHTML(t) {
   return `<div class="exp-table-wrap reveal">
     <h3>${esc(t.title)}</h3>
     <p class="cite">${esc(t.cite)}</p>
-    <table class="exp-table">
+    <div class="exp-scroll"><table class="exp-table">
       <thead><tr>${t.columns.map(c => `<th>${esc(c)}</th>`).join('')}</tr></thead>
       <tbody>
         ${t.rows.map(r => `<tr>${r.map(c => `<td>${esc(c)}</td>`).join('')}</tr>`).join('')}
       </tbody>
-    </table>
+    </table></div>
     ${t.note ? `<p class="exp-note">${esc(t.note)}</p>` : ''}
   </div>`;
 }
@@ -143,4 +144,5 @@ ${htp ? htpSectionHTML(id, '04') : ''}
 export function renderPapers(root) {
   root.innerHTML = PAPER_ORDER.map(id => paperHTML(id, PAPERS[id])).join('\n');
   initHtpLinks(root);
+  initScrollCues(root);
 }

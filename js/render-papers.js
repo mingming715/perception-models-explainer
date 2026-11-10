@@ -1,5 +1,6 @@
 import { PAPERS, PAPER_ORDER } from './papers-data.js';
 import { RELATED_FIGS } from './related-figs.js';
+import { HTP_PAPERS, htpSectionHTML, initHtpLinks } from './htp-porting.js';
 
 const SEC_LABELS = [
   { id: 'overview', label: '개요' },
@@ -8,6 +9,14 @@ const SEC_LABELS = [
   { id: 'experiment', label: 'Experiment' },
   { id: 'summary', label: '정리' },
 ];
+
+/** Per-paper rail: papers with an HTP section get an extra "HTP" item after Method. */
+function secLabels(id) {
+  if (!HTP_PAPERS.has(id)) return SEC_LABELS;
+  const out = [];
+  SEC_LABELS.forEach((s) => { out.push(s); if (s.id === 'method') out.push({ id: 'htp', label: 'HTP' }); });
+  return out;
+}
 
 function esc(s) {
   return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -44,6 +53,8 @@ function relatedHTML(id, r) {
 }
 
 function paperHTML(id, p) {
+  const htp = HTP_PAPERS.has(id);
+  const n = (k) => String(k + (htp ? 1 : 0)).padStart(2, '0');
   const steps = p.methodSteps.map((s, i) => `
     <div class="mstep" data-step="${i}" id="${id}-step-${i}">
       <span class="mstep-num">${String(i + 1).padStart(2, '0')}</span>
@@ -54,7 +65,7 @@ function paperHTML(id, p) {
   return `
 <article class="paper" id="${id}" data-paper="${id}" data-lab="${p.lab}">
   <aside class="paper-progress" aria-label="섹션 진행">
-    ${SEC_LABELS.map(s => `<a href="#${id}-${s.id}" data-sec="${s.id}"><i></i><span>${s.label}</span></a>`).join('')}
+    ${secLabels(id).map(s => `<a href="#${id}-${s.id}" data-sec="${s.id}"><i></i><span>${s.label}</span></a>`).join('')}
   </aside>
 
   <header class="paper-hero reveal">
@@ -104,15 +115,15 @@ function paperHTML(id, p) {
       <figcaption>${p.figure.caption}</figcaption>
     </figure>
   </section>
-
+${htp ? htpSectionHTML(id, '04') : ''}
   <section class="paper-sec" id="${id}-experiment" data-sec="experiment">
-    <h2 class="sec-title reveal"><span>04</span> Experiment</h2>
+    <h2 class="sec-title reveal"><span>${n(4)}</span> Experiment</h2>
     <p class="reveal prose-lead">${esc(p.experiments.intro)}</p>
     ${p.experiments.tables.map(tableHTML).join('')}
   </section>
 
   <section class="paper-sec" id="${id}-summary" data-sec="summary">
-    <h2 class="sec-title reveal"><span>05</span> 정리 · 포팅 관점</h2>
+    <h2 class="sec-title reveal"><span>${n(5)}</span> 정리 · 포팅 관점</h2>
     <div class="summary-grid">
       <div class="card reveal">
         <h3>정리</h3>
@@ -131,4 +142,5 @@ function paperHTML(id, p) {
 
 export function renderPapers(root) {
   root.innerHTML = PAPER_ORDER.map(id => paperHTML(id, PAPERS[id])).join('\n');
+  initHtpLinks(root);
 }

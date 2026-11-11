@@ -1691,6 +1691,218 @@ function initS4Dv3() {
 }
 
 /* ════════════════════════════════════════════
+   Sparse4D TPAMI — camera 3D kp + LiDAR BEV 2D kp → instance fusion
+   ════════════════════════════════════════════ */
+function initTPAMI() {
+  const canvas = document.getElementById('lab-tpami');
+  if (!canvas) return;
+  const home = { pos: [5.6, 4.8, 6.6], target: [0, 0.45, 0.2] };
+  const { root, renderer, scene, camera, orbit, zoom } = bootStreetLab(canvas, { home });
+
+  const ego = makeCar(0x0e7490);
+  scene.add(ego);
+  const frustumGroup = new THREE.Group();
+  [-1.0, -0.5, 0, 0.5, 1.0, Math.PI].forEach((yaw) => frustumGroup.add(makeFrustumFan(yaw, 0x22d3ee)));
+  scene.add(frustumGroup);
+
+  // Instances (anchor boxes)
+  const anchorPos = [[-1.6, 2.2], [0.3, 2.9], [1.9, 1.9]];
+  const infer = new THREE.Group();
+  scene.add(infer);
+  const anchors = anchorPos.map(([x, z]) => {
+    const b = makeQueryBox(0x94a3b8, [0.9, 0.65, 1.5]);
+    b.position.set(x, 0, z);
+    infer.add(b);
+    return b;
+  });
+  const focus = anchors[1];
+
+  // Camera image planes + 3D keypoints → rays
+  const imgGroup = new THREE.Group();
+  scene.add(imgGroup);
+  const planes = [-0.5, 0, 0.5].map((yaw, i) => {
+    const plane = new THREE.Mesh(
+      new THREE.PlaneGeometry(0.9, 0.6),
+      new THREE.MeshBasicMaterial({ map: makePlaceholderTex(170 + i * 14), transparent: true, opacity: 0.5, side: THREE.DoubleSide })
+    );
+    plane.position.set(Math.sin(yaw) * 4.6, 2.3, Math.cos(yaw) * 4.6);
+    plane.lookAt(0, 1.4, 0);
+    imgGroup.add(plane);
+    return plane;
+  });
+  const camKp = new THREE.Group();
+  scene.add(camKp);
+  const kpOffsets = [[0, 0.32, 0], [0.32, 0.32, 0.55], [-0.32, 0.32, -0.55], [0.3, 0.55, -0.4], [-0.3, 0.12, 0.45]];
+  const camRays = [];
+  kpOffsets.forEach((o, i) => {
+    const s3 = glowSphere(0.07, 0x22d3ee);
+    s3.position.set(focus.position.x + o[0], o[1], focus.position.z + o[2]);
+    camKp.add(s3);
+    const target = planes[i % planes.length];
+    const line = new THREE.Line(
+      new THREE.BufferGeometry().setFromPoints([s3.position.clone(), target.position.clone()]),
+      new THREE.LineBasicMaterial({ color: 0x22d3ee, transparent: true, opacity: 0.6 })
+    );
+    camKp.add(line);
+    camRays.push(line);
+  });
+  const camLab = makeTextLabel('3D keypoint → 이미지', { color: '#22d3ee', scale: 0.8, size: 24, w: 380, h: 64 });
+  camLab.position.set(0.3, 3.15, 4.1);
+  camKp.add(camLab);
+
+  // LiDAR: point ring + BEV plane + 2D keypoints
+  const lidarGroup = new THREE.Group();
+  scene.add(lidarGroup);
+  const pts = [];
+  for (let r = 1.4; r < 5.2; r += 0.42) {
+    for (let a = 0; a < Math.PI * 2; a += 0.09 / (r * 0.35)) {
+      pts.push(Math.cos(a) * r, 0.04, Math.sin(a) * r);
+    }
+  }
+  const pg = new THREE.BufferGeometry();
+  pg.setAttribute('position', new THREE.Float32BufferAttribute(pts, 3));
+  const cloud = new THREE.Points(pg, new THREE.PointsMaterial({ color: 0xa3e635, size: 0.035, transparent: true, opacity: 0.55 }));
+  lidarGroup.add(cloud);
+  const bevPlane = new THREE.Mesh(
+    new THREE.PlaneGeometry(7.2, 7.2, 12, 12),
+    new THREE.MeshBasicMaterial({ color: 0xa3e635, wireframe: true, transparent: true, opacity: 0.18 })
+  );
+  bevPlane.rotation.x = -Math.PI / 2;
+  bevPlane.position.y = 0.03;
+  lidarGroup.add(bevPlane);
+  const bevKp = new THREE.Group();
+  lidarGroup.add(bevKp);
+  kpOffsets.forEach((o) => {
+    const d = glowSphere(0.06, 0xa3e635);
+    d.position.set(focus.position.x + o[0], 0.05, focus.position.z + o[2]);
+    bevKp.add(d);
+    const v = new THREE.Line(
+      new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(d.position.x, 0.05, d.position.z), new THREE.Vector3(d.position.x, o[1], d.position.z)]),
+      new THREE.LineDashedMaterial({ color: 0xa3e635, dashSize: 0.06, gapSize: 0.05 })
+    );
+    v.computeLineDistances();
+    bevKp.add(v);
+  });
+  const bevLab = makeTextLabel('LiDAR BEV · 2D keypoint', { color: '#a3e635', scale: 0.8, size: 24, w: 400, h: 64 });
+  bevLab.position.set(focus.position.x + 1.6, 0.35, focus.position.z + 0.9);
+  lidarGroup.add(bevLab);
+
+  // Fusion: two bars → fused sphere above focus anchor
+  const fuseGroup = new THREE.Group();
+  fuseGroup.position.set(focus.position.x, 1.75, focus.position.z);
+  scene.add(fuseGroup);
+  const barMat = (c) => new THREE.MeshStandardMaterial({ color: c, emissive: c, emissiveIntensity: 0.55 });
+  const camBar = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.6, 0.22), barMat(0x22d3ee));
+  camBar.position.set(-0.45, 0, 0);
+  const lidBar = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.6, 0.22), barMat(0xa3e635));
+  lidBar.position.set(0.45, 0, 0);
+  const fused = glowSphere(0.2, 0xf59e0b);
+  fused.position.set(0, 0.75, 0);
+  fuseGroup.add(camBar, lidBar, fused);
+  const fuseLab = makeTextLabel('F_fusion', { color: '#fbbf24', scale: 0.7, size: 26, w: 260, h: 64 });
+  fuseLab.position.set(0, 1.25, 0);
+  fuseGroup.add(fuseLab);
+
+  // Past instances (violet) → propagated with ego + v·Δt
+  const pastGroup = new THREE.Group();
+  scene.add(pastGroup);
+  const past = anchors.map((a) => {
+    const b = makeQueryBox(0x8b5cf6, [0.9, 0.65, 1.5]);
+    b.position.set(a.position.x - 0.9, 0, a.position.z - 1.3);
+    pastGroup.add(b);
+    const dir = new THREE.Vector3(0.9, 0, 1.3);
+    const ah = new THREE.ArrowHelper(dir.clone().normalize(), b.position.clone().add(new THREE.Vector3(0, 0.75, 0)), dir.length(), 0xf59e0b, 0.2, 0.12);
+    pastGroup.add(ah);
+    return b;
+  });
+  const pastLab = makeTextLabel('top-600 전파 · ego + v·Δt', { color: '#a78bfa', scale: 1.5, size: 26, w: 460, h: 64 });
+  pastLab.position.set(-1.4, 2.0, 0.9);
+  pastGroup.add(pastLab);
+
+  // Tracking IDs
+  const idGroup = new THREE.Group();
+  scene.add(idGroup);
+  anchors.forEach((a, i) => {
+    const l = makeTextLabel(`ID ${[3, 7, 12][i]}`, { color: '#e2e8f0', scale: 0.6, size: 28, w: 200, h: 64 });
+    l.position.set(a.position.x, 1.25, a.position.z);
+    idGroup.add(l);
+  });
+
+  const clutter = [ego, frustumGroup];
+  const steps = [
+    { title: '1. Instance = anchor + feature', phase: 0 },
+    { title: '2. 카메라: deformable aggregation', phase: 1, zoom: { pos: [6.4, 4.4, 0.4], target: [0.4, 1.3, 3.4], dim: 'clutter' } },
+    { title: '3. LiDAR: BEV에서 2D keypoint', phase: 2, zoom: { pos: [4.4, 3.8, 0.2], target: [0.3, 0.2, 2.9], dim: 'clutter' } },
+    { title: '4. Instance 단위 융합', phase: 3, zoom: { pos: [4.2, 3.2, 0.6], target: [0.3, 1.4, 2.9], dim: 'clutter' } },
+    { title: '5. 재귀 시간 전파', phase: 4 },
+    { title: '6. End-to-end 추적', phase: 5 },
+  ];
+  function dimFor(st) {
+    if (!st?.zoom?.dim) return [];
+    if (st.phase === 1) return [...clutter, lidarGroup];
+    if (st.phase === 2) return [...clutter, imgGroup];
+    return [...clutter, imgGroup, lidarGroup];
+  }
+
+  let phase = 0;
+  function applyPhase(p) {
+    phase = p;
+    imgGroup.visible = p >= 1 && p <= 3;
+    camKp.visible = p === 1 || p === 3;
+    lidarGroup.visible = p >= 2 && p <= 3;
+    fuseGroup.visible = p === 3;
+    pastGroup.visible = p === 4;
+    idGroup.visible = p === 5;
+    zoom.clearDetail();
+    setStreetHome(camera, orbit, zoom, home);
+    const st = steps.find((s) => s.phase === p);
+    if (st?.zoom) zoom.setDetail(st.zoom.pos, st.zoom.target, dimFor(st));
+    renderer.render(scene, camera);
+  }
+
+  bindLabUI(root, steps, (i) => applyPhase(steps[i].phase), 'tpami');
+  __labDebug['tpami'] = { scene, camera, canvas, orbit, renderer };
+  __labZoom['tpami'] = (step) => {
+    const st = steps[step];
+    if (!st?.zoom) { zoom.scrub(0); return; }
+    zoom.setDetail(st.zoom.pos, st.zoom.target, dimFor(st));
+    zoom.scrub(1);
+  };
+
+  let running = false;
+  new IntersectionObserver(([e]) => { running = e.isIntersecting; }, { threshold: 0.12 }).observe(canvas);
+  fit(renderer, camera, canvas);
+  setStreetHome(camera, orbit, zoom, home, true);
+  applyPhase(0);
+  window.addEventListener('resize', () => { fit(renderer, camera, canvas); setStreetHome(camera, orbit, zoom, home, true); });
+
+  (function frame(now) {
+    requestAnimationFrame(frame);
+    if (!running) return;
+    const clock = now * 0.001;
+    const motion = reduceMotion ? 0 : 1;
+    if (motion) {
+      if (phase === 3) {
+        const u = (Math.sin(clock * 2) + 1) / 2;
+        camBar.position.x = -0.45 * (1 - u * 0.6);
+        lidBar.position.x = 0.45 * (1 - u * 0.6);
+        fused.material.emissiveIntensity = 0.4 + u * 0.5;
+      }
+      if (phase === 4) {
+        const u = easeInOut((now % 2200) / 2200);
+        anchors.forEach((a, i) => {
+          past[i].position.set(a.position.x - 0.9 * (1 - u), 0, a.position.z - 1.3 * (1 - u));
+        });
+      }
+      cloud.rotation.y = clock * 0.15;
+      ego.rotation.y = Math.sin(clock * 0.25) * 0.05;
+    }
+    orbit.controls.update();
+    renderer.render(scene, camera);
+  })(performance.now());
+}
+
+/* ════════════════════════════════════════════
    Foundation4D — shared tokens + multi-head
    ════════════════════════════════════════════ */
 function initF4D() {
@@ -1860,6 +2072,7 @@ function boot() {
   initS4Dv1();
   initS4Dv2();
   initS4Dv3();
+  initTPAMI();
   initF4D();
 }
 window.__bootLabs = boot;

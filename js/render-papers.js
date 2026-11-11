@@ -71,7 +71,9 @@ function paperHTML(id, p) {
 
   <header class="paper-hero reveal">
     <p class="arxiv"><span class="org">${esc(p.org)}</span> · <b>${esc(p.venue)}</b>
-      <a class="arxiv-link" href="https://arxiv.org/abs/${esc(p.arxiv)}" target="_blank" rel="noopener">arXiv ${esc(p.arxiv)} ↗</a></p>
+      ${p.link
+        ? `<a class="arxiv-link" href="${esc(p.link.href)}" target="_blank" rel="noopener">${esc(p.link.label)} ↗</a>`
+        : `<a class="arxiv-link" href="https://arxiv.org/abs/${esc(p.arxiv)}" target="_blank" rel="noopener">arXiv ${esc(p.arxiv)} ↗</a>`}</p>
     <h2>${esc(p.title)}</h2>
     <p class="lede">${p.lede}</p>
     <ul class="keypts">${p.tags.map(t => `<li>${esc(t)}</li>`).join('')}</ul>
@@ -111,10 +113,10 @@ function paperHTML(id, p) {
         </div>
       </div>
     </div>
-    <figure class="paper-fig reveal">
+    ${p.figure ? `<figure class="paper-fig reveal">
       <img src="${esc(p.figure.src)}" alt="${esc(p.figure.alt)}" loading="lazy">
       <figcaption>${p.figure.caption}</figcaption>
-    </figure>
+    </figure>` : ''}
   </section>
 ${htp ? htpSectionHTML(id, '04') : ''}
   <section class="paper-sec" id="${id}-experiment" data-sec="experiment">

@@ -108,6 +108,48 @@ function rows(v3) {
   ];
 }
 
+/* ── TPAMI LiDAR branch (논문 Fig. 5: V&F → multi-scale BEV → 2D keypoint 샘플 → instance 융합) ── */
+const LIDAR_ROWS = [
+  {
+    id: 'voxel', name: 'LiDAR voxelization', sub: '점군 → voxel → BEV canvas (V&F 앞단)',
+    cells: [
+      ['g', '점군·voxel 버퍼는 작음'],
+      ['g', 'CPU fp32로 처리하면 양자화 대상 아님'],
+      ['r', '프레임마다 점·voxel 개수가 바뀜'],
+      ['r', 'point→voxel 배정과 scatter가 데이터 의존'],
+    ],
+    overall: 'c', overallText: 'CPU',
+    strategy: '현재 SAM FastPillar처럼 CPU에서 voxel화, P·N 상한 + mask로 고정 크기 BEV canvas를 HTP 입력으로',
+  },
+  {
+    id: 'lidar', name: 'LiDAR BEV backbone · 2D 샘플 · 융합', sub: 'ResNet-18 BEV 특징 → 2D keypoint 샘플 → fusion module',
+    cells: [
+      ['y', `BEV 특징맵 해상도가 논문에 없음 → 크기 미확인 ${est}`],
+      ['y', '2D CNN은 W8A8로 충분, GridSample grid는 카메라와 같은 비트폭 문제'],
+      ['g', 'canvas·anchor·keypoint 수 고정'],
+      ['y', `깊이 나눗셈·시점 선택 없음. fusion module 구조는 본문 미공개 ${est}`],
+    ],
+    overall: 'y',
+    strategy: 'BEV backbone은 G1과 같은 INT8 그래프, 2D 샘플·융합은 G2 디코더 안에 둠',
+  },
+];
+const LIDAR_CARDS = [
+  {
+    badges: ['cpu'], block: 'voxel', tp: true,
+    title: 'voxelization은 동적 scatter',
+    issue: '점마다 어느 voxel에 들어갈지가 데이터에 따라 바뀌어 HTP 정적 그래프로 못 옮깁니다. BEVFusion 프로젝트의 FastPillar·SparseConv 분석과 같은 문제입니다.',
+    fix: ['CPU에서 voxel화하고 고정 크기 BEV canvas만 HTP로 넘김', 'P(voxel 수)·N(voxel당 점 수) 상한을 고정하고 mask로 빈 칸 처리'],
+    verdict: '구조적으로 CPU 몫. 지연은 점 개수에 비례하므로 실측 필요',
+  },
+  {
+    badges: ['work'], block: 'lidar', tp: true,
+    title: 'LiDAR 샘플링은 카메라보다 쉬움',
+    issue: 'LiDAR 쪽은 anchor keypoint를 BEV 위로 2D 투영만 하므로 카메라 투영 행렬·깊이 나눗셈·6캠 중 시점 선택이 없습니다. 다만 BEV 특징 해상도와 fusion module 구조는 논문에 나오지 않습니다.',
+    fix: ['BEV 특징 하나에 레벨별 GridSample (카메라 6캠 대비 샘플 수가 적음)', 'fusion은 concat + Linear로 가정하고 MatMul 분할로 텐서별 스케일 유지'],
+    verdict: `카메라 deformable aggregation보다 부담이 작을 것 ${est}. 공식 코드 공개 여부 확인 필요`,
+  },
+];
+
 /* ── difficulty cards ── */
 const BADGE = {
   fix: ['해결 가능', 'ok'],
@@ -217,8 +259,8 @@ function block(id, x, y, w, h, lv, lines, tag) {
   return `<g class="htp-blk lv-${lv}" data-htp="${id}" tabindex="0" role="button" aria-label="${lines.join(' ')}${tag ? ' ' + tag : ''} — 종합 ${LV[lv]}">
     <rect x="${x}" y="${y}" width="${w}" height="${h}" rx="12" style="--c:${COL[lv]}"/>${txt}</g>`;
 }
-function diagram(v3) {
-  const W = 1140, H = 400;
+function diagram(v3, tp = false) {
+  const W = 1140, H = tp ? 470 : 400;
   const by = 96, bh = 92; // block row
   const arr = (x1, y1, x2, y2) => `<line class="htp-arrow" x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" marker-end="url(#htp-head)"/>`;
   const mid = by + bh / 2;
@@ -257,6 +299,17 @@ function diagram(v3) {
   g += `<path class="htp-loop" d="M ${refX} ${by + bh + 2} C ${refX} ${ry + rh / 2}, ${rx + rw + 60} ${ry + rh / 2}, ${rx + rw + 3} ${ry + rh / 2}" marker-end="url(#htp-head)"/>`;
   g += `<path class="htp-loop" d="M ${rx - 3} ${ry + rh / 2} C ${ancX + 20} ${ry + rh / 2}, ${ancX} ${ry + 10}, ${ancX} ${by + bh + 4}" marker-end="url(#htp-head)"/>`;
   g += `<text class="htp-loop-t" x="${(rx + rw / 2)}" y="${ry - 12}" text-anchor="middle">다음 프레임으로 instance 상태를 넘김</text>`;
+  if (tp) {
+    const ly0 = 370, lh0 = 64;
+    g += `<g class="htp-in"><rect x="0" y="${ly0}" width="104" height="${lh0}" rx="10"/>
+      <text class="htp-bt" x="52" y="${ly0 + 37}" text-anchor="middle">LiDAR 점군</text></g>`;
+    g += arr(106, ly0 + lh0 / 2, 128, ly0 + lh0 / 2);
+    g += block('voxel', 132, ly0, 128, lh0, 'c', ['Voxelization', '(CPU)']);
+    g += arr(262, ly0 + lh0 / 2, 278, ly0 + lh0 / 2);
+    g += block('lidar', 282, ly0, 150, lh0, 'y', ['BEV backbone', '· 2D 샘플']);
+    g += arr(347, ly0 - 2, 347, 230);
+    g += `<text class="htp-loop-t" x="338" y="${ly0 - 60}" text-anchor="end">BEV 특징 → 2D keypoint 샘플</text>`;
+  }
   // legend
   const ly = H - 14;
   const leg = [['g', '쉬움'], ['y', '보통'], ['r', '어려움'], ['c', 'CPU']];
@@ -268,7 +321,7 @@ function diagram(v3) {
     lx += 24 + s.length * 14 + 26;
   });
   g += `<text class="htp-leg-t mut" x="${W - 6}" y="${ly + 1}" text-anchor="end">블록에 마우스를 올리거나 Tab으로 포커스하면 아래 표의 행이 강조됩니다</text>`;
-  return `<svg class="htp-svg" viewBox="0 0 ${W} ${H}" role="group" aria-label="Sparse4D ${v3 ? 'v3' : 'v2'} 추론 그래프와 블록별 HTP 포팅 난이도">${g}</svg>`;
+  return `<svg class="htp-svg" viewBox="0 0 ${W} ${H}" role="group" aria-label="Sparse4D ${tp ? 'TPAMI' : v3 ? 'v3' : 'v2'} 추론 그래프와 블록별 HTP 포팅 난이도">${g}</svg>`;
 }
 
 /* ── HTML ── */
@@ -289,7 +342,7 @@ function cardsHTML(list) {
   return `<h3 class="htp-h3 reveal">포팅할 때 고쳐야 하거나 고려할 어려움</h3>
   <div class="htp-cards">${list.map((c) => `
     <article class="htp-card reveal" data-htp="${c.block}">
-      <div class="htp-badges">${c.badges.map((b) => `<span class="htp-badge b-${BADGE[b][1]}">${BADGE[b][0]}</span>`).join('')}${c.v3 ? '<span class="htp-badge b-v3">v3</span>' : ''}</div>
+      <div class="htp-badges">${c.badges.map((b) => `<span class="htp-badge b-${BADGE[b][1]}">${BADGE[b][0]}</span>`).join('')}${c.v3 ? '<span class="htp-badge b-v3">v3</span>' : ''}${c.tp ? '<span class="htp-badge b-v3">LiDAR</span>' : ''}</div>
       <h4>${c.title}</h4>
       <p class="htp-issue">${c.issue}</p>
       <p class="htp-k">대체·수정</p>
@@ -299,14 +352,17 @@ function cardsHTML(list) {
   </div>`;
 }
 
-export const HTP_PAPERS = new Set(['stream-petr', 'sparse4d-v1', 'sparse4d-v2', 'sparse4d-v3', 'foundation4d']);
+export const HTP_PAPERS = new Set(['stream-petr', 'sparse4d-v1', 'sparse4d-v2', 'sparse4d-v3', 'sparse4d-tpami', 'foundation4d']);
 
 export function htpSectionHTML(id, num) {
   if (id === 'stream-petr') return extSectionHTML(id, num, { rows: spRows, cards: spCards, diagram: spDiagram, LEAD: SP_LEAD, CAPTION: SP_CAPTION, FOOT: SP_FOOT, NOTES: SP_NOTES });
   if (id === 'sparse4d-v1') return extSectionHTML(id, num, V1);
   if (id === 'foundation4d') return extSectionHTML(id, num, F4D);
-  const v3 = id === 'sparse4d-v3';
-  const lead = v3
+  const tp = id === 'sparse4d-tpami';
+  const v3 = id === 'sparse4d-v3' || tp;
+  const lead = tp
+    ? 'TPAMI판 카메라 모델은 v3와 구성이 같아(900 instance, 600 전파, 13 keypoint, 6층, decoupled attention) 카메라 블록 판정은 v3와 같습니다. 여기에 논문 Fig. 5의 LiDAR 경로(voxelization → BEV backbone → 2D keypoint 샘플 → instance 융합)를 더해 SA8650P HTP(v73) 기준으로 따져 봤습니다. LiDAR 블록 판정은 논문 본문과 BEVFusion 프로젝트의 LiDAR 분석을 근거로 한 추정입니다.'
+    : v3
     ? 'SA8650P HTP(v73)에 올릴 때 블록별로 메모리(DDR·VTCM), 양자화, 고정 shape, 비표준 연산을 따져 본 결과입니다. v3 추론 그래프는 v2와 거의 같고, 추가분은 작은 quality MLP와 512차원 decoupled attention뿐입니다. anchor 900개, keypoint 13개, 캐시 600개가 모두 고정이라 정적 그래프로 내보낼 수 있습니다.'
     : 'SA8650P HTP(v73)에 올릴 때 블록별로 메모리(DDR·VTCM), 양자화, 고정 shape, 비표준 연산을 따져 본 결과입니다. anchor 900개, keypoint 13개, 캐시 600개가 모두 고정이라 정적 그래프로 내보낼 수 있고, BEVFusion BEV pool 같은 동적 scatter-add도 없습니다.';
   return `
@@ -314,12 +370,12 @@ export function htpSectionHTML(id, num) {
     <h2 class="sec-title reveal"><span>${num}</span> HTP 포팅 난이도</h2>
     <p class="reveal prose-lead">${lead} 어려운 곳은 <b>deformable aggregation</b>과 <b>미터 단위 기하 구간</b> 두 군데입니다.</p>
     <figure class="htp-fig reveal">
-      <div class="htp-scroll">${diagram(v3)}</div>
+      <div class="htp-scroll">${diagram(v3, tp)}</div>
       <figcaption>블록 색 = 아래 표의 종합 난이도. 종합은 네 축 중 가장 어려운 축을 기본으로 하되, 분석 노트의 블록별 판정과 같게 맞췄습니다(CPU로 보내면 풀리는 후처리의 동적 shape는 낮춤).</figcaption>
     </figure>
-    ${tableHTML(rows(v3))}
+    ${tableHTML(tp ? [rows(v3)[0], ...LIDAR_ROWS, ...rows(v3).slice(1)] : rows(v3))}
     <p class="htp-foot reveal">학습 전용 블록(${v3 ? 'v3 temporal instance denoising, ' : ''}dense depth 분기)은 추론 그래프에서 제거합니다. <a href="${ANALYSIS_URL}" target="_blank" rel="noopener">전체 분석 페이지 ↗</a></p>
-    ${cardsHTML(cards(v3))}
+    ${cardsHTML(tp ? [...cards(v3), ...LIDAR_CARDS] : cards(v3))}
   </section>`;
 }
 

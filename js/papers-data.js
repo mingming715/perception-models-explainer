@@ -337,6 +337,123 @@ export const PAPERS = {
     porting: '학습 전용 denoising 그래프는 배포에서 제외합니다. 원 논문도 동기 멀티 카메라 입력을 가정합니다.',
   },
 
+  'sparse4d-tpami': {
+    cat: 'sparse',
+    title: 'Sparse4D (TPAMI)',
+    link: { href: 'https://doi.org/10.1109/TPAMI.2026.3688545', label: 'DOI 10.1109/TPAMI.2026.3688545' },
+    org: "Horizon Robotics · Soochow University",
+    venue: "TPAMI 2026",
+    lede: "v1~v3를 <b>하나의 프레임워크로 다시 설계</b>한 Sparse4D 시리즈의 첫 정식 저널판입니다. 카메라 모델 구성은 v3와 같고, 여기에 <b>LiDAR·멀티모달 확장</b>, 센서 고장·캘리브레이션 오차 강건성, 실차(Orin) 주행 결과를 더했습니다.",
+    tags: ['v1–v3 통합 재설계', 'Camera · LiDAR · Fusion', 'End-to-end tracking', 'Orin 실차 128 ms'],
+    lab: 'tpami',
+    legend: [['#94a3b8', 'anchor (instance)'], ['#22d3ee', '카메라 3D keypoint'], ['#a3e635', 'LiDAR BEV · 2D keypoint'], ['#f59e0b', 'fused feature'], ['#8b5cf6', '이전 프레임 instance']],
+    overview: [
+      "<b>무엇이 새로운가.</b> 이 논문은 Sparse4D v1(deformable aggregation), v2(recurrent 시간 융합), v3(denoising·quality estimation·decoupled attention)를 그냥 이어 붙인 것이 아니라고 밝힙니다. 모듈 사이를 하나의 feature encoding layer로 묶어, 따로 쓸 때보다 모듈 간 feature 변환 오버헤드를 35% 줄였다고 합니다. 그 위에 LiDAR와 카메라+LiDAR 융합을 같은 instance 틀로 확장했습니다.",
+      "<b>왜 sparse인가.</b> BEV 방식은 이미지를 조밀한 BEV 격자로 바꿔야 해서 저가 엣지 칩에 올리기 어렵고, 인지 거리(200 m 이상)를 늘리면 연산이 거리에 비례해 늘어납니다. 높이 축이 눌려 표지판 같은 대상에도 약합니다. 반면 DETR3D 같은 기존 sparse 모델은 가볍지만 정확도가 BEV에 한참 못 미쳤습니다. Sparse4D는 이 격차를 메우는 것이 목표입니다.",
+      "<b>어떻게 동작하나.</b> 물체 하나를 <b>anchor</b>(x, y, z, w, l, h, sin·cos yaw, 속도 3개 = 11차원)와 <b>instance feature</b>(256차원)로 나눠 들고 다닙니다. 디코더는 single-frame layer 1개와 multi-frame layer 5개, instance 900개 중 600개를 다음 프레임으로 넘깁니다. 이미지에서는 anchor 안 13개 keypoint를 투영해 특징을 모으고, 다음 프레임에는 anchor만 ego·속도로 옮기고 feature는 그대로 넘깁니다(시간 융합 비용 O(1)).",
+      "<b>저널판에서 더한 검증.</b> LiDAR 단독·융합 성능(nuScenes test NDS 71.9 / 74.4), 카메라·LiDAR 고장 시 BEVFusion과의 비교, 내·외부 파라미터 오차 실험, 디코더 깊이·instance 수 ablation, 날씨·조도별 성능, 그리고 BYD 승용차와 물류차의 Orin 실차 주행(평균 지연 128 ms)이 추가됐습니다.",
+    ],
+    related: {
+      intro: "TPAMI판 Related Works는 다시점 3D 검출, end-to-end 추적, 멀티모달 융합 세 갈래로 기존 연구를 정리하고, Sparse4D 시리즈 자체와의 관계도 따로 밝힙니다.",
+      rows: [
+        ["BEVFormer · BEVDet/BEVDepth · SOLOFusion", "이미지를 조밀한 BEV로 바꾸는 변환이 엣지 칩에 무겁고, 인지 거리가 BEV 크기에 묶이며, 높이 정보가 눌립니다.", "BEV를 만들지 않고 sparse instance가 이미지에서 직접 특징을 뽑습니다."],
+        ["PETR 계열", "3D position encoding + 전역 cross-attention이라 연산이 큽니다.", "anchor 주변 keypoint만 국소 샘플링합니다."],
+        ["DETR3D · Graph DETR3D · SRCN3D", "기준점 하나만 샘플하거나(DETR3D), RoI-Align이 느리고 시점 간 정렬이 어렵습니다. 시간 정보도 쓰지 않습니다.", "multi-keypoint·multi-view·multi-scale deformable aggregation + 재귀 시간 융합."],
+        ["MOTR · MUTR3D · TrackFormer", "추적 목적에 맞춰 학습 매칭을 바꾸고 ID 정답이 필요하며, 높은 임계값을 넘은 쿼리만 넘깁니다.", "검출기 학습·추론을 바꾸지 않고, 임계값을 넘은 instance에 ID만 붙입니다."],
+        ["FUTR3D · TransFusion · CMT · SparseFusion", "쿼리 기반 융합으로 옮겨가는 흐름이지만 모달리티마다 쿼리 생성·인코딩 방식이 다릅니다.", "같은 anchor에서 카메라는 3D keypoint, LiDAR BEV는 2D keypoint로 샘플해 instance 단위로 합칩니다."],
+        ["Far3D · FB-BEV", "deformable aggregation·재귀 전파와 비슷한 부품이 이미 있었습니다.", "논문 주장: dense BEV나 프레임 단위 전파 대신, 공간·시간을 함께 담는 sparse 4D instance 집합을 계속 유지합니다."],
+      ],
+      takeaway: "한 줄로: <b>“카메라든 LiDAR든 instance 하나로 모으고, instance를 시간축으로 이어 간다.”</b> 카메라 모델 구성은 v3와 같으므로, 이 논문의 새 내용은 대부분 멀티모달 확장과 강건성·실차 검증입니다.",
+    },
+    methodSteps: [
+      { title: "Instance = anchor + feature", body: "회색 박스가 instance입니다. 각 instance는 명시적인 <b>anchor</b>(11차원 3D 박스)와 암묵적인 <b>feature</b>(256차원)를 따로 가집니다. 기본 설정은 900개이며, k-means로 초기화한 anchor가 공간에 고르게 깔립니다." },
+      { title: "카메라: deformable aggregation", body: "anchor 안에 고정 7개 + 학습 6개 = 13개의 <b>3D keypoint</b>를 만들고, 카메라 내·외부 파라미터로 각 이미지의 여러 scale feature map에 투영해 bilinear 샘플합니다. 가중치는 feature + anchor embedding + <b>카메라 파라미터 인코딩</b>으로 예측합니다. 한 점은 최대 두 카메라에만 보인다는 사전 지식으로 연산을 줄입니다(EDA)." },
+      { title: "LiDAR: BEV에서 2D keypoint", body: "점군은 voxelization과 특징 추출(V&F)로 multi-scale <b>BEV feature</b>가 됩니다. 같은 anchor의 keypoint를 BEV 위로 <b>2D 투영</b>해 그 자리 특징만 모읍니다. 카메라처럼 깊이 나눗셈이나 시점 선택이 필요 없습니다." },
+      { title: "Instance 단위 융합", body: "같은 instance에서 나온 카메라 feature와 LiDAR feature를 fusion module이 합쳐 하나의 fused feature로 만듭니다. dense BEV끼리 합치는 BEVFusion과 달리, 물체 단위로만 합칩니다. 융합 모듈의 세부 구조는 본문에 자세히 나오지 않습니다." },
+      { title: "재귀 시간 전파", body: "디코더 마지막 층의 instance 중 점수 상위 600개를 다음 프레임으로 넘깁니다. anchor만 ego 회전·이동과 v·Δt로 옮기고 feature는 그대로 씁니다. 그래서 과거 프레임이 길어져도 비용은 한 프레임분(O(1))입니다. single-frame layer가 새 물체를 찾고, multi-frame layer 5개가 시간 융합을 맡습니다." },
+      { title: "End-to-end 추적", body: "instance를 박스가 아니라 <b>궤적</b>으로 다시 정의합니다. 점수가 임계값 T(0.25)를 넘은 instance에 ID를 붙이고, 이후 전파되는 동안 ID를 유지합니다. 수명 관리는 top-k 선택이 대신하므로 연관·필터링 후처리나 추적 전용 학습이 없습니다." },
+    ],
+    methodNotes: [
+      "학습 보조(추론에서 제거): temporal instance denoising(M=5 그룹 중 4개 시간 전파), multi-scale dense depth supervision.",
+      "Ablation(Table III): base mAP 0.323 → 전체 0.469, NDS 0.397 → 0.561, AMOTA 0.346 → 0.490.",
+      "디코더 깊이: 3~4층은 IDS가 크게 나빠지고 7~9층은 이득이 작아 6층을 기본으로 둡니다(Fig. 13).",
+    ],
+    experiments: {
+      intro: '카메라 단독 검출, LiDAR·융합, 센서 고장, 실차 결과를 논문 표에서 그대로 옮겼습니다. 표 사이 조건이 다르니 같은 표 안에서만 비교하세요.',
+      tables: [
+        {
+          title: 'nuScenes val · 카메라 (Table VI)',
+          cite: 'Table VI — FPS는 논문 표기값',
+          columns: ['방법', 'Backbone · 해상도', 'mAP↑', 'NDS↑', 'FPS'],
+          rows: [
+            ['BEVPoolv2', 'R50 · 256×704', '0.406', '0.526', '16.6'],
+            ['SOLOFusion', 'R50 · 256×704', '0.427', '0.534', '11.4'],
+            ['StreamPETR', 'R50 · 256×704', '0.432', '0.537', '26.7'],
+            ['Sparse4D', 'R50 · 256×704', '0.469', '0.561', '19.8'],
+            ['StreamPETR', 'R101 · 512×1408', '0.504', '0.592', '6.4'],
+            ['Far3D', 'R101 · 512×1408', '0.510', '0.594', '-'],
+            ['Sparse4D', 'R101 · 512×1408', '0.537', '0.623', '8.2'],
+          ],
+        },
+        {
+          title: 'LiDAR · 멀티모달 (Table XI)',
+          cite: 'Table XI — nuScenes, TTA 없음. NDS / mAP (%)',
+          columns: ['방법', '모달리티', 'val NDS', 'val mAP', 'test NDS', 'test mAP'],
+          rows: [
+            ['Sparse4D (R101)', 'C', '62.3', '53.7', '64.5', '54.1'],
+            ['TransFusion-L', 'L', '70.1', '65.1', '70.2', '65.5'],
+            ['Sparse4D (ResNet-18)', 'L', '71.1', '66.6', '71.9', '66.4'],
+            ['BEVFusion', 'L+C', '71.4', '68.5', '72.9', '70.2'],
+            ['SparseFusion', 'L+C', '72.8', '70.4', '73.8', '72.0'],
+            ['Sparse4D', 'L+C', '73.6', '71.3', '74.4', '71.4'],
+          ],
+          note: 'test mAP는 SparseFusion(72.0)이 Sparse4D(71.4)보다 높고, NDS는 Sparse4D가 가장 높습니다.',
+        },
+        {
+          title: '센서 고장 · BEVFusion 비교 (Table VIII)',
+          cite: 'Table VIII — C: 카메라만, L: LiDAR만, C-Soiled: 카메라 오염. mAP / NDS (%)',
+          columns: ['조건', 'BEVFusion val mAP', 'BEVFusion val NDS', 'Sparse4D val mAP', 'Sparse4D val NDS'],
+          rows: [
+            ['C', '35.6', '41.2', '46.9', '56.1'],
+            ['L', '64.7', '69.3', '66.6', '71.1'],
+            ['C+L', '68.5', '71.4', '71.3', '73.6'],
+            ['C-Soiled', '34.4', '40.5', '45.8', '55.8'],
+          ],
+          note: '논문은 차이의 이유로 시점 간 융합, 시간 모델링, instance 메모리를 듭니다.',
+        },
+        {
+          title: '실차 주행 (Table II)',
+          cite: 'Table II — NVIDIA Orin, 도심 주행 5회 × 20분',
+          columns: ['지표', 'Sparse4D', 'SOLOFusion', 'StreamPETR'],
+          rows: [
+            ['mAP@0.5 (동적 객체)', '0.763', '0.687', '0.679'],
+            ['평균 추론 지연 (ms)', '128', '231', '153'],
+            ['메모리 (GB)', '5.3', '5.7', '6.9'],
+          ],
+        },
+        {
+          title: 'EDA · 추적 ablation (Table IV, V)',
+          cite: 'Table IV — RTX 3090, batch 1 / Table V — 같은 검출기, R50',
+          columns: ['비교', '기준', 'Sparse4D'],
+          rows: [
+            ['추론 FPS (EDA 없음 → 있음)', '13.1', '19.8'],
+            ['추론 GPU 메모리 MB', '964', '469'],
+            ['학습 GPU 메모리 MB', '5705', '2853'],
+            ['AMOTA (SimpleTrack → Algorithm 1)', '0.486', '0.490'],
+            ['ID switch (SimpleTrack → Algorithm 1)', '575', '430'],
+          ],
+        },
+      ],
+    },
+    summary: [
+      '카메라 모델 구성(900 instance, 600 전파, 13 keypoint, 6층 디코더)은 v3와 같습니다. 저널판의 새 내용은 LiDAR·융합 확장과 강건성·실차 검증입니다.',
+      'LiDAR는 BEV feature에서 2D keypoint로 샘플하고, 융합은 instance feature 단위로 합니다. dense BEV 융합이 필요 없습니다.',
+      '센서 고장 실험에서 카메라만 남았을 때 BEVFusion 대비 val NDS 41.2 → 56.1로 차이가 가장 큽니다.',
+      '실차(Orin) 평균 지연은 128 ms로 SOLOFusion 231 ms, StreamPETR 153 ms보다 짧습니다.',
+    ],
+    porting: '카메라 경로는 v3와 같아 위 HTP 분석을 그대로 씁니다. LiDAR 경로에서는 voxelization이 동적 scatter라 CPU에 두고, BEV backbone과 2D 샘플링만 HTP에 올리는 분리가 자연스럽습니다. 학습 전용 denoising·dense depth 분기는 배포 그래프에서 뺍니다.',
+  },
+
   'foundation4d': {
     cat: 'scene',
     title: 'Foundation4D',
@@ -412,4 +529,4 @@ export const PAPERS = {
   },
 };
 
-export const PAPER_ORDER = ['stream-petr', 'sparse4d-v1', 'sparse4d-v2', 'sparse4d-v3', 'foundation4d'];
+export const PAPER_ORDER = ['stream-petr', 'sparse4d-v1', 'sparse4d-v2', 'sparse4d-v3', 'sparse4d-tpami', 'foundation4d'];

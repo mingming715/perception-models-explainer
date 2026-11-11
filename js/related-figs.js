@@ -233,6 +233,42 @@ function f4dTasks() {
   return svg(960, 40 + 3 * RH + 22, g, 'VGGT, GeoUP, Foundation4D가 다루는 작업 비교');
 }
 
+/* ── Sparse4D TPAMI: dense BEV fusion vs instance-level fusion ── */
+function sparse4dTpami() {
+  const H = 330;
+  // (a) BEVFusion-style dense fusion
+  let a = panel(0, 300, H, '(a) Dense BEV 융합', 'BEVFusion 계열',
+    ['카메라·LiDAR를 각각 BEV 격자로 만든 뒤 합침', '격자 전체를 만들고 저장해야 함'], false);
+  a += img(16, 74, 66, 44, '카메라') + bev(98, 80, 0.5, '', true);
+  a += t(120, 136, '카메라 BEV', 'rf-tiny');
+  a += img(16, 168, 66, 44, 'LiDAR', 'faded') + bev(98, 174, 0.5, '', true);
+  a += t(120, 230, 'LiDAR BEV', 'rf-tiny');
+  a += arrow(84, 96, 100, 96) + arrow(84, 190, 100, 190);
+  a += t(204, 160, '⊕ 격자 단위 concat', 'rf-tiny', 'middle');
+
+  // (b) Sparse4D instance fusion
+  let b = panel(330, 300, H, '(b) Sparse4D · instance 융합', '같은 anchor에서 두 도메인을 샘플',
+    ['카메라는 3D keypoint, LiDAR BEV는 2D keypoint', '물체 단위 feature만 합침'], true, true);
+  b += img(352, 78, 80, 52, '이미지 feature') + bev(352, 182, 0.5, '', false);
+  b += t(380, 236, 'LiDAR BEV feature', 'rf-tiny');
+  b += cube(500, 150, 34, AMBER);
+  [[372, 96], [404, 112], [388, 120]].forEach(([x, y]) => { b += line(500, 150, x, y, CYAN) + dot(x, y, CYAN, 4); });
+  [[400, 198], [430, 196]].forEach(([x, y]) => { b += line(500, 150, x, y, GREEN) + dot(x, y, GREEN, 4); });
+  b += arrow(526, 150, 560, 150, AMBER) + dot(578, 150, AMBER, 12) + t(578, 182, 'F_fusion', 'rf-tiny', 'middle');
+
+  // (c) series lineage
+  let c = panel(660, 300, H, '(c) 시리즈 계보', '각 버전이 더한 것',
+    ['저널판은 v1~v3를 한 틀로 다시 설계', '+ LiDAR·융합, 강건성·실차 검증'], true, true);
+  const steps = [['v1 · 2022', 'deformable aggregation'], ['v2 · 2023', 'recurrent 시간 융합'], ['v3 · 2023', 'denoising · QE · decoupled'], ['TPAMI · 2026', '통합 + 멀티모달']];
+  steps.forEach(([n, d], i) => {
+    const y = 84 + i * 46, last = i === steps.length - 1;
+    c += dot(688, y, last ? AMBER : GRAY, last ? 8 : 6);
+    if (!last) c += line(688, y + 8, 688, y + 38, GRAY);
+    c += t(704, y - 2, n, 'rf-title') + t(704, y + 14, d, 'rf-tiny');
+  });
+  return svg(960, H, DEFS + a + b + c, 'Dense BEV 융합과 Sparse4D instance 융합 비교, Sparse4D 시리즈 계보');
+}
+
 export const RELATED_FIGS = {
   'stream-petr': [{ svg: streamPetr, cap: '시간 정보를 다루는 세 가지 방식. StreamPETR 논문 Fig. 1의 분류를 다시 그렸습니다.' }],
   'sparse4d-v1': [{ svg: sparse4dV1, cap: '앵커 하나에서 feature를 뽑는 방식 비교. Sparse4D는 keypoint를 시간축(4D)까지 확장합니다.' }],
@@ -241,6 +277,7 @@ export const RELATED_FIGS = {
     { svg: sparse4dV2Chart, cap: '논문 Table 1 수치. v1은 과거 프레임 T가 늘수록 느려지고 메모리가 커지지만, v2는 T와 무관합니다 (점에 마우스를 올리면 값 표시).' },
   ],
   'sparse4d-v3': [{ svg: sparse4dV3, cap: 'v3의 두 학습·구조 개선을 기존 DETR 계열 기법과 나란히 비교했습니다.' }],
+  'sparse4d-tpami': [{ svg: sparse4dTpami, cap: '멀티모달 융합 방식 비교와 Sparse4D 시리즈 계보. 논문 Fig. 5의 융합 구조를 우리 식으로 다시 그렸습니다.' }],
   'foundation4d': [
     { svg: f4dAttention, cap: '12장(T=3 × C=4) 윈도우에서 강조된 칸(cam2·t₂)이 attention할 수 있는 이미지. 실제로는 이미지마다 패치 토큰 수백 개가 들어갑니다.' },
     { svg: f4dTasks, cap: '가장 가까운 선행 연구와 다루는 출력 비교.' },

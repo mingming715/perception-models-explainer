@@ -768,3 +768,4 @@ svg.htp-svg{ display:block; width:100%; min-width:900px; height:auto; font-famil
 .xscroll-cue.can-scroll::after{ opacity:1; }
 .xscroll-cue.can-scroll.at-end::after{ opacity:0; }
 @media (prefers-reduced-motion: reduce){ .xscroll-cue::after{ transition:none; } }
+.htp-svg .htp-loop-solid{ fill:none; stroke:#64748b; stroke-width:1.6; }
